@@ -182,7 +182,7 @@ export default function MainLedgerPage() {
   // ── 小班家教：實收金額 × 公積金比例留公司，其餘全給主理教師 ──
   const tutoringCourses = (coursesQuery.data ?? []).filter((c: any) => c.category === "tutoring");
   const onlineCourses = (coursesQuery.data ?? []).filter((c: any) => c.category !== "tutoring");
-  const tutoringRate = settingsQuery.data?.settings.tutoringReserveRate ?? 0.05;
+  const tutoringRate = settingsQuery.data?.settings.tutoringReserveRate ?? 0.1;
   const tutorCourse: any = tutoringCourses.find((c: any) => c.id === tutorCourseId);
   const tutorAmountNum = parseInt(tutorAmount || "0", 10) || 0;
   const tutorReserve = Math.round(tutorAmountNum * tutoringRate);

@@ -145,7 +145,7 @@ function CoursesAdmin() {
     <Section title="課程管理">
       <p className="text-xs text-slate-500">
         課程分兩類：<b>線上課程</b>走「課程收入分潤精靈」，實際售價 = 原價 ×（基礎折數 + 年期加成），需要設定主理教師與原價；
-        <b>小班家教</b>記帳時直接填實收金額，扣掉公積金比例（目前 5%，可在「分潤設定」調整）後全給主理教師，原價只是參考用。
+        <b>小班家教</b>記帳時直接填實收金額，扣掉公積金比例（在「分潤設定」調整）後全給主理教師，原價只是參考用。
       </p>
       <form
         className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-2 items-end"
@@ -699,7 +699,7 @@ function RevenueSettingsAdmin() {
     materialCost: "300",
     monthlySubscription: "350",
     estimatedMonthlySales: "30",
-    tutoringReserveRatePercent: "5",
+    tutoringReserveRatePercent: "10",
   });
   const [newMemberType, setNewMemberType] = useState<"teacher" | "salesperson">("teacher");
   const [newMemberId, setNewMemberId] = useState<number | "">("");
@@ -716,7 +716,7 @@ function RevenueSettingsAdmin() {
       materialCost: String(s.materialCost),
       monthlySubscription: String(s.monthlySubscription),
       estimatedMonthlySales: String(s.estimatedMonthlySales),
-      tutoringReserveRatePercent: String(Math.round((s.tutoringReserveRate ?? 0.05) * 100 * 1000) / 1000),
+      tutoringReserveRatePercent: String(Math.round((s.tutoringReserveRate ?? 0.1) * 100 * 1000) / 1000),
     });
   }, [settingsQuery.data]);
 

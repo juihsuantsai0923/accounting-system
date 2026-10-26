@@ -224,7 +224,7 @@ export const revenueSettings = sqliteTable("revenue_settings", {
   materialCost: integer("material_cost").notNull().default(300), // 教材/物流成本（每套課程）
   monthlySubscription: integer("monthly_subscription").notNull().default(350), // 網站訂閱費（每月固定）
   estimatedMonthlySales: integer("estimated_monthly_sales").notNull().default(30), // 預估月銷量，用來分攤月固定成本
-  tutoringReserveRate: real("tutoring_reserve_rate").notNull().default(0.05), // 小班家教留給公積金的比例（0~1）
+  tutoringReserveRate: real("tutoring_reserve_rate").notNull().default(0.1), // 小班家教留給公積金的比例（0~1）
   updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
 });
 

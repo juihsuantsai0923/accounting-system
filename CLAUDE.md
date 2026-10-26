@@ -80,7 +80,7 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - 帳號設定頁可以改自己的姓名（`users.changeOwnName`）和密碼。
 - 收入來源有四種（`main_ledger.income_source`，舊資料為 null）：
   - `course` 線上課程：走分潤精靈（`computeCourseIncome`）。
-  - `tutoring` 小班家教：課程 `category = 'tutoring'`，實收金額 × `tutoring_reserve_rate`（預設 5%）留公積金，其餘全給主理教師（`computeTutoringIncome`）。不套折數、優惠碼、推廣、團隊獎金。
+  - `tutoring` 小班家教：課程 `category = 'tutoring'`，實收金額 × `tutoring_reserve_rate`（2026-10-26 起為 10%，原本 5%；正式值存在 D1 的 revenue_settings）留公積金，其餘全給主理教師（`computeTutoringIncome`）。不套折數、優惠碼、推廣、團隊獎金。
   - `book` 書籍（含筆記本、組合包，`books` 表）：選書＋數量＋優惠碼（`coupons` 表，折扣比例）算建議金額，實收可改；全數留公積金，不分給任何人（`computeBookIncome`）。
   - `other` 其他收入（`income_types`），可手動多方分配。
 - 三種精靈入帳都走 `mainLedger.ts` 的 `insertIncome()`，新增收入類型時沿用它，不要再複製一份寫入邏輯。

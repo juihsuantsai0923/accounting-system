@@ -24,7 +24,7 @@ export const DEFAULT_REVENUE_SETTINGS: Omit<RevenueSettingsRow, "id"> = {
   materialCost: 300,
   monthlySubscription: 350,
   estimatedMonthlySales: 30,
-  tutoringReserveRate: 0.05, // 小班家教：實收金額的 5% 留給公積金，其餘全給主理教師
+  tutoringReserveRate: 0.1, // 小班家教：實收金額的 10% 留給公積金，其餘全給主理教師（2026-10-26 由 5% 改為 10%）
 };
 
 export type CourseYears = 1 | 2 | 3;

@@ -71,7 +71,7 @@ export default function Dashboard() {
         <div className="text-sm text-slate-500">公積金（公司自己的錢）</div>
         <div className={`text-3xl font-semibold mt-1 ${reserveFund < 0 ? "text-red-600" : "text-brand-700"}`}>{fmt(reserveFund)}</div>
         <div className="text-xs text-slate-400 mt-2">
-          ＝ 母記帳表目前餘額 {fmt(currentBalance)} − 還欠所有人的錢 {fmt(netOwed)}。書籍收入、小班家教的 5%、線上課程沒分出去的部分都會累積在這裡。
+          ＝ 母記帳表目前餘額 {fmt(currentBalance)} − 還欠所有人的錢 {fmt(netOwed)}。書籍收入、小班家教扣下的公積金、線上課程沒分出去的部分都會累積在這裡。
         </div>
       </div>
 
