@@ -60,6 +60,14 @@ export const createTableStatements: string[] = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS expense_types_name_idx ON expense_types(name)`,
 
+  `CREATE TABLE IF NOT EXISTS income_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS income_types_name_idx ON income_types(name)`,
+
   `CREATE TABLE IF NOT EXISTS main_ledger (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type TEXT NOT NULL,
@@ -148,4 +156,39 @@ export const createTableStatements: string[] = [
     after_data TEXT,
     created_at INTEGER NOT NULL
   )`,
+
+  `CREATE TABLE IF NOT EXISTS revenue_settings (
+    id INTEGER PRIMARY KEY,
+    base_discount REAL NOT NULL DEFAULT 0.6,
+    coupon_discount INTEGER NOT NULL DEFAULT 750,
+    referral_bonus INTEGER NOT NULL DEFAULT 500,
+    platform_fee_rate REAL NOT NULL DEFAULT 0.2,
+    team_bonus_rate REAL NOT NULL DEFAULT 0.16666666666666666,
+    material_cost INTEGER NOT NULL DEFAULT 300,
+    monthly_subscription INTEGER NOT NULL DEFAULT 350,
+    estimated_monthly_sales INTEGER NOT NULL DEFAULT 30,
+    updated_at INTEGER NOT NULL
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS revenue_team_members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient_type TEXT NOT NULL,
+    recipient_id INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+];
+
+/**
+ * 既有資料庫的資料表可能是舊版建立的，缺少後續新增的欄位。
+ * CREATE TABLE IF NOT EXISTS 不會幫既有資料表補欄位，所以額外用 ALTER TABLE 處理。
+ * 每一條都先檢查欄位是否已存在，重複執行也安全（見 db.ts / migrations/*.sql）。
+ */
+export const courseColumnMigrations: { column: string; statement: string }[] = [
+  { column: "teacher_id", statement: `ALTER TABLE courses ADD COLUMN teacher_id INTEGER` },
+  { column: "base_price", statement: `ALTER TABLE courses ADD COLUMN base_price INTEGER` },
+  { column: "original_price", statement: `ALTER TABLE courses ADD COLUMN original_price INTEGER` },
+];
+
+export const revenueSettingsColumnMigrations: { column: string; statement: string }[] = [
+  { column: "base_discount", statement: `ALTER TABLE revenue_settings ADD COLUMN base_discount REAL NOT NULL DEFAULT 0.6` },
 ];

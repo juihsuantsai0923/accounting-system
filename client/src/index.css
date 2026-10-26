@@ -3,36 +3,50 @@
 @tailwind utilities;
 
 body {
-  font-family: "PingFang TC", "Microsoft JhengHei", -apple-system, BlinkMacSystemFont, sans-serif;
-  background-color: #f8fafc;
+  font-family: "LXGW WenKai TC", "Noto Sans TC", -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", sans-serif;
+  background-color: #f4f6fb;
+  background-image: radial-gradient(circle at top left, rgba(23, 59, 105, 0.06), transparent 45%),
+    radial-gradient(circle at bottom right, rgba(232, 162, 51, 0.05), transparent 40%);
+  background-attachment: fixed;
+  color: #1e2333;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 0.01em;
 }
 
 .card {
-  @apply bg-white rounded-xl shadow-sm border border-slate-200 p-5;
+  @apply bg-white rounded-xl shadow-card border border-slate-100/80 p-5 sm:p-6 transition-shadow duration-200;
+}
+
+.card:hover {
+  @apply shadow-card-hover;
 }
 
 .btn {
-  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium tracking-wide transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
 .btn-primary {
-  @apply btn bg-brand-600 text-white hover:bg-brand-700;
+  @apply btn bg-brand-gradient text-white shadow-md hover:shadow-lg hover:brightness-110 active:brightness-95;
 }
 
 .btn-secondary {
-  @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200;
+  @apply btn bg-white text-slate-600 border border-slate-200 shadow-sm hover:bg-slate-50 hover:text-brand-700 hover:border-brand-200;
 }
 
 .btn-danger {
-  @apply btn bg-red-50 text-red-600 hover:bg-red-100;
+  @apply btn bg-transparent text-red-500 border border-red-100 hover:bg-red-50 hover:text-red-600;
+}
+
+.btn-gold {
+  @apply btn bg-gold-gradient text-brand-900 font-semibold shadow-md hover:shadow-lg hover:brightness-105 active:brightness-95;
 }
 
 .input {
-  @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+  @apply w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100;
 }
 
 .label {
-  @apply block text-sm font-medium text-slate-600 mb-1;
+  @apply block text-xs font-medium text-slate-500 mb-1.5 tracking-wide;
 }
 
 table.data-table {
@@ -40,13 +54,22 @@ table.data-table {
 }
 
 table.data-table th {
-  @apply text-left font-medium text-slate-500 border-b border-slate-200 px-3 py-2 whitespace-nowrap;
+  @apply text-left font-semibold text-brand-700/70 text-xs uppercase tracking-wider border-b-2 border-brand-100 px-3 py-2.5 whitespace-nowrap bg-brand-50/50;
 }
 
 table.data-table td {
-  @apply border-b border-slate-100 px-3 py-2 whitespace-nowrap;
+  @apply border-b border-slate-50 px-3 py-2.5 whitespace-nowrap text-slate-700;
+}
+
+table.data-table tbody tr {
+  @apply transition-colors;
 }
 
 table.data-table tbody tr:hover {
-  @apply bg-slate-50;
+  @apply bg-gold-50/60;
+}
+
+/* 手機直式螢幕較窄時，表格允許橫向捲動，不會把整個頁面版面撐爆 */
+.table-wrap {
+  @apply overflow-x-auto -mx-5 px-5 sm:-mx-6 sm:px-6;
 }

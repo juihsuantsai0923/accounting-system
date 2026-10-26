@@ -2,6 +2,7 @@ import { useState } from "react";
 import { trpc } from "../lib/trpc";
 import { useAuth, canManage } from "../lib/auth";
 import { downloadTextFile } from "../lib/download";
+import SearchableSelect from "../components/SearchableSelect";
 
 function fmt(n: number) {
   return `NT$${n.toLocaleString()}`;
@@ -76,7 +77,7 @@ export default function AdvancePaymentsPage() {
         <form onSubmit={handleSubmit} className="card space-y-4">
           <h2 className="font-medium text-slate-700">新增代墊記錄</h2>
           {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
             <div>
               <label className="label">身份</label>
               <select
@@ -93,14 +94,12 @@ export default function AdvancePaymentsPage() {
             </div>
             <div>
               <label className="label">姓名</label>
-              <select className="input" value={recipientId} onChange={(e) => setRecipientId(Number(e.target.value))} required>
-                <option value="">請選擇</option>
-                {recipientOptions.map((p: any) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                options={(recipientOptions ?? []).map((p: any) => ({ id: p.id, name: p.name }))}
+                value={recipientId}
+                onChange={(id) => setRecipientId(id)}
+                placeholder="搜尋姓名..."
+              />
             </div>
             <div>
               <label className="label">代墊項目</label>
@@ -128,9 +127,9 @@ export default function AdvancePaymentsPage() {
       )}
 
       <div className="card">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
           <h2 className="font-medium text-slate-700">代墊記錄列表</h2>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select className="input !w-40" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
               <option value="">全部狀態</option>
               <option value="unsettled">未核銷</option>
@@ -141,6 +140,7 @@ export default function AdvancePaymentsPage() {
             </button>
           </div>
         </div>
+        <div className="table-wrap">
         <table className="data-table">
           <thead>
             <tr>
@@ -209,6 +209,7 @@ export default function AdvancePaymentsPage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

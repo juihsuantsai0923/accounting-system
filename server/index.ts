@@ -6,12 +6,16 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "./routers/index";
 import { createContext } from "./context";
 import { ensureAdmin } from "./ensureAdmin";
+import { ensureSalaryExpenseTypes } from "./ensureSalaryExpenseTypes";
+import { db } from "./db";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
-  // 資料庫資料表已在 import "./db" 時自動建立，這裡只需確保至少有一組管理員帳號
-  await ensureAdmin();
+  // 資料庫資料表已在 import "./db" 時自動建立，這裡只需確保至少有一組管理員帳號，
+  // 並補齊每位老師／銷售員對應的「薪水」支出類型（既有帳號也會在這裡一次補上）。
+  await ensureAdmin(db, { ADMIN_EMAIL: process.env.ADMIN_EMAIL, ADMIN_PASSWORD: process.env.ADMIN_PASSWORD });
+  await ensureSalaryExpenseTypes(db);
 
   const app = express();
   app.use(cors());

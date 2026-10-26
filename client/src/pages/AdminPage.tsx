@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { trpc } from "../lib/trpc";
 import { useAuth, ROLE_LABELS } from "../lib/auth";
+import SearchableSelect from "../components/SearchableSelect";
+import { toHalfWidth } from "../lib/textNormalize";
 
-type Tab = "teachers" | "salespeople" | "courses" | "expenseTypes" | "users";
+type Tab = "teachers" | "salespeople" | "courses" | "expenseTypes" | "incomeTypes" | "users" | "revenue";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -16,26 +18,43 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function TeachersAdmin() {
   const utils = trpc.useUtils();
   const listQuery = trpc.teachers.list.useQuery();
-  const createMutation = trpc.teachers.create.useMutation({ onSuccess: () => utils.teachers.list.invalidate() });
-  const deleteMutation = trpc.teachers.delete.useMutation({ onSuccess: () => utils.teachers.list.invalidate() });
+  const createMutation = trpc.teachers.create.useMutation({
+    onSuccess: () => {
+      utils.teachers.list.invalidate();
+      utils.expenseTypes.list.invalidate();
+    },
+  });
+  const deleteMutation = trpc.teachers.delete.useMutation({
+    onSuccess: () => {
+      utils.teachers.list.invalidate();
+      utils.expenseTypes.list.invalidate();
+    },
+  });
   const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <Section title="教師管理">
       <form
-        className="flex gap-2"
+        className="flex flex-wrap gap-2"
         onSubmit={async (e) => {
           e.preventDefault();
+          setError(null);
           if (!name.trim()) return;
-          await createMutation.mutateAsync({ name });
-          setName("");
+          try {
+            await createMutation.mutateAsync({ name });
+            setName("");
+          } catch (err: any) {
+            setError(err?.message ?? "新增失敗");
+          }
         }}
       >
         <input className="input" placeholder="教師姓名" value={name} onChange={(e) => setName(e.target.value)} />
-        <button className="btn-primary" type="submit">
-          新增
+        <button className="btn-primary" type="submit" disabled={createMutation.isPending}>
+          {createMutation.isPending ? "新增中..." : "新增"}
         </button>
       </form>
+      {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
       <ul className="divide-y divide-slate-100">
         {(listQuery.data ?? []).map((t) => (
           <li key={t.id} className="flex items-center justify-between py-2 text-sm">
@@ -66,23 +85,30 @@ function SalespeopleAdmin() {
     },
   });
   const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <Section title="推銷者管理">
       <form
-        className="flex gap-2"
+        className="flex flex-wrap gap-2"
         onSubmit={async (e) => {
           e.preventDefault();
+          setError(null);
           if (!name.trim()) return;
-          await createMutation.mutateAsync({ name });
-          setName("");
+          try {
+            await createMutation.mutateAsync({ name });
+            setName("");
+          } catch (err: any) {
+            setError(err?.message ?? "新增失敗");
+          }
         }}
       >
         <input className="input" placeholder="推銷者姓名" value={name} onChange={(e) => setName(e.target.value)} />
-        <button className="btn-primary" type="submit">
-          新增（自動建立薪水支出類型）
+        <button className="btn-primary" type="submit" disabled={createMutation.isPending}>
+          {createMutation.isPending ? "新增中..." : "新增（自動建立薪水支出類型）"}
         </button>
       </form>
+      {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
       <ul className="divide-y divide-slate-100">
         {(listQuery.data ?? []).map((s) => (
           <li key={s.id} className="flex items-center justify-between py-2 text-sm">
@@ -100,42 +126,92 @@ function SalespeopleAdmin() {
 function CoursesAdmin() {
   const utils = trpc.useUtils();
   const listQuery = trpc.courses.list.useQuery();
+  const teachersQuery = trpc.teachers.list.useQuery();
   const createMutation = trpc.courses.create.useMutation({ onSuccess: () => utils.courses.list.invalidate() });
+  const updateMutation = trpc.courses.update.useMutation({ onSuccess: () => utils.courses.list.invalidate() });
   const deleteMutation = trpc.courses.delete.useMutation({ onSuccess: () => utils.courses.list.invalidate() });
+
   const [name, setName] = useState("");
   const [type, setType] = useState<"personal" | "collaborative">("personal");
+  const [teacherId, setTeacherId] = useState<number | "">("");
+  const [originalPrice, setOriginalPrice] = useState("");
+
+  const teacherOptions = (teachersQuery.data ?? []).map((t) => ({ id: t.id, name: t.name }));
 
   return (
     <Section title="課程管理">
+      <p className="text-xs text-slate-500">
+        「主理教師」與「原價」是「課程收入分潤精靈」計算分潤時需要的資訊：實際售價 = 原價 ×（基礎折數 + 年期加成），
+        基礎折數與年期加成規則請至「分潤設定」調整。個人課程建議都設定好，才能直接用精靈入帳。
+      </p>
       <form
-        className="flex gap-2"
+        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-end"
         onSubmit={async (e) => {
           e.preventDefault();
           if (!name.trim()) return;
-          await createMutation.mutateAsync({ name, type });
+          await createMutation.mutateAsync({
+            name,
+            type,
+            teacherId: teacherId === "" ? null : teacherId,
+            originalPrice: originalPrice ? parseInt(originalPrice, 10) : null,
+          });
           setName("");
+          setTeacherId("");
+          setOriginalPrice("");
         }}
       >
         <input className="input" placeholder="課程名稱" value={name} onChange={(e) => setName(e.target.value)} />
-        <select className="input !w-40" value={type} onChange={(e) => setType(e.target.value as any)}>
+        <select className="input" value={type} onChange={(e) => setType(e.target.value as any)}>
           <option value="personal">個人課程</option>
           <option value="collaborative">合作課程</option>
         </select>
+        <SearchableSelect options={teacherOptions} value={teacherId} onChange={(id) => setTeacherId(id)} placeholder="主理教師（選填）" />
+        <input
+          className="input"
+          placeholder="原價（選填）"
+          inputMode="numeric"
+          value={originalPrice}
+          onChange={(e) => setOriginalPrice(e.target.value.replace(/[^\d]/g, ""))}
+        />
         <button className="btn-primary" type="submit">
           新增
         </button>
       </form>
       <ul className="divide-y divide-slate-100">
-        {(listQuery.data ?? []).map((c) => (
-          <li key={c.id} className="flex items-center justify-between py-2 text-sm">
-            <span>
-              {c.name} <span className="text-slate-400">（{c.type === "personal" ? "個人" : "合作"}）</span>
-            </span>
-            <button className="btn-danger" onClick={() => confirm(`確定刪除課程「${c.name}」？`) && deleteMutation.mutate({ id: c.id })}>
-              刪除
-            </button>
-          </li>
-        ))}
+        {(listQuery.data ?? []).map((c) => {
+          const teacherName = teacherOptions.find((t) => t.id === c.teacherId)?.name;
+          return (
+            <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+              <span>
+                {c.name} <span className="text-slate-400">（{c.type === "personal" ? "個人" : "合作"}）</span>
+                {teacherName && <span className="text-slate-400"> · 主理：{teacherName}</span>}
+                {c.originalPrice != null && <span className="text-slate-400"> · 原價：NT${c.originalPrice.toLocaleString()}</span>}
+              </span>
+              <div className="flex items-center gap-2">
+                <SearchableSelect
+                  className="!w-40"
+                  options={teacherOptions}
+                  value={c.teacherId ?? ""}
+                  onChange={(id) => updateMutation.mutate({ id: c.id, teacherId: id })}
+                  placeholder="設定主理教師"
+                />
+                <input
+                  className="input !w-32"
+                  placeholder="原價"
+                  inputMode="numeric"
+                  defaultValue={c.originalPrice ?? ""}
+                  onBlur={(e) => {
+                    const v = e.target.value.replace(/[^\d]/g, "");
+                    updateMutation.mutate({ id: c.id, originalPrice: v ? parseInt(v, 10) : null });
+                  }}
+                />
+                <button className="btn-danger" onClick={() => confirm(`確定刪除課程「${c.name}」？`) && deleteMutation.mutate({ id: c.id })}>
+                  刪除
+                </button>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </Section>
   );
@@ -153,7 +229,7 @@ function ExpenseTypesAdmin() {
   return (
     <Section title="支出類型管理">
       <form
-        className="flex gap-2"
+        className="flex flex-wrap gap-2"
         onSubmit={async (e) => {
           e.preventDefault();
           if (!name.trim()) return;
@@ -188,6 +264,47 @@ function ExpenseTypesAdmin() {
   );
 }
 
+function IncomeTypesAdmin() {
+  const utils = trpc.useUtils();
+  const listQuery = trpc.incomeTypes.list.useQuery();
+  const createMutation = trpc.incomeTypes.create.useMutation({ onSuccess: () => utils.incomeTypes.list.invalidate() });
+  const deleteMutation = trpc.incomeTypes.delete.useMutation({ onSuccess: () => utils.incomeTypes.list.invalidate() });
+  const [name, setName] = useState("");
+
+  return (
+    <Section title="收入類型管理（其他收入，不含課程）">
+      <p className="text-xs text-slate-500">
+        課程收入固定走「課程收入分潤精靈」，這裡管理的是課程以外的其他收入項目（例如：贊助、場地租借、周邊商品銷售…），在母記帳表新增收入時選「其他收入」就會用到這份清單。
+      </p>
+      <form
+        className="flex flex-wrap gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!name.trim()) return;
+          await createMutation.mutateAsync({ name });
+          setName("");
+        }}
+      >
+        <input className="input" placeholder="收入類型名稱" value={name} onChange={(e) => setName(e.target.value)} />
+        <button className="btn-primary" type="submit">
+          新增
+        </button>
+      </form>
+      <ul className="divide-y divide-slate-100">
+        {(listQuery.data ?? []).map((i) => (
+          <li key={i.id} className="flex items-center justify-between py-2 text-sm">
+            <span>{i.name}</span>
+            <button className="btn-danger" onClick={() => confirm(`確定刪除收入類型「${i.name}」？`) && deleteMutation.mutate({ id: i.id })}>
+              刪除
+            </button>
+          </li>
+        ))}
+        {listQuery.data?.length === 0 && <li className="text-sm text-slate-400 py-2">尚未設定其他收入類型</li>}
+      </ul>
+    </Section>
+  );
+}
+
 function UsersAdmin() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
@@ -196,8 +313,10 @@ function UsersAdmin() {
   const salespeopleQuery = trpc.salespeople.list.useQuery();
   const createMutation = trpc.users.create.useMutation({ onSuccess: () => utils.users.list.invalidate() });
   const updateMutation = trpc.users.updateRole.useMutation({ onSuccess: () => utils.users.list.invalidate() });
+  const deleteMutation = trpc.users.delete.useMutation({ onSuccess: () => utils.users.list.invalidate() });
 
   const [form, setForm] = useState({ email: "", password: "", name: "", role: "finance_staff" as string, linkedTeacherId: "", linkedSalespersonId: "" });
+  const [error, setError] = useState<string | null>(null);
 
   if (user?.role !== "super_admin") {
     return <Section title="帳號與權限管理">僅系統管理員可使用此功能。</Section>;
@@ -206,21 +325,34 @@ function UsersAdmin() {
   return (
     <Section title="帳號與權限管理">
       <form
-        className="grid grid-cols-2 md:grid-cols-6 gap-2 items-end"
+        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-2 items-end"
         onSubmit={async (e) => {
           e.preventDefault();
-          await createMutation.mutateAsync({
-            email: form.email,
-            password: form.password,
-            name: form.name,
-            role: form.role as any,
-            linkedTeacherId: form.linkedTeacherId ? Number(form.linkedTeacherId) : null,
-            linkedSalespersonId: form.linkedSalespersonId ? Number(form.linkedSalespersonId) : null,
-          });
-          setForm({ email: "", password: "", name: "", role: "finance_staff", linkedTeacherId: "", linkedSalespersonId: "" });
+          setError(null);
+          const email = toHalfWidth(form.email);
+          try {
+            await createMutation.mutateAsync({
+              email,
+              password: form.password,
+              name: form.name,
+              role: form.role as any,
+              linkedTeacherId: form.linkedTeacherId ? Number(form.linkedTeacherId) : null,
+              linkedSalespersonId: form.linkedSalespersonId ? Number(form.linkedSalespersonId) : null,
+            });
+            setForm({ email: "", password: "", name: "", role: "finance_staff", linkedTeacherId: "", linkedSalespersonId: "" });
+          } catch (err: any) {
+            setError(err?.message ?? "新增失敗");
+          }
         }}
       >
-        <input className="input" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+        <input
+          className="input"
+          placeholder="Email"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          onBlur={(e) => setForm((f) => ({ ...f, email: toHalfWidth(e.target.value) }))}
+          required
+        />
         <input
           className="input"
           placeholder="密碼（至少6碼）"
@@ -257,11 +389,16 @@ function UsersAdmin() {
             ))}
           </select>
         )}
-        <button className="btn-primary" type="submit">
-          新增帳號
+        <button className="btn-primary" type="submit" disabled={createMutation.isPending}>
+          {createMutation.isPending ? "新增中..." : "新增帳號"}
         </button>
       </form>
+      {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
+      {deleteMutation.error && (
+        <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{deleteMutation.error.message}</div>
+      )}
 
+      <div className="table-wrap">
       <table className="data-table">
         <thead>
           <tr>
@@ -270,6 +407,7 @@ function UsersAdmin() {
             <th>角色</th>
             <th>狀態</th>
             <th>操作</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -296,11 +434,223 @@ function UsersAdmin() {
                   {u.isActive ? "停用" : "啟用"}
                 </button>
               </td>
+              <td>
+                <button
+                  className="btn-danger"
+                  disabled={u.id === user.id || deleteMutation.isPending}
+                  title={u.id === user.id ? "不能刪除自己目前登入中的帳號" : undefined}
+                  onClick={() => confirm(`確定要刪除帳號「${u.name}（${u.email}）」？此動作無法復原。`) && deleteMutation.mutate({ id: u.id })}
+                >
+                  刪除
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
     </Section>
+  );
+}
+
+function RevenueSettingsAdmin() {
+  const utils = trpc.useUtils();
+  const settingsQuery = trpc.revenueSettings.get.useQuery();
+  const teachersQuery = trpc.teachers.list.useQuery();
+  const salespeopleQuery = trpc.salespeople.list.useQuery();
+
+  const updateMutation = trpc.revenueSettings.update.useMutation({ onSuccess: () => utils.revenueSettings.get.invalidate() });
+  const addMemberMutation = trpc.revenueSettings.addTeamMember.useMutation({ onSuccess: () => utils.revenueSettings.get.invalidate() });
+  const removeMemberMutation = trpc.revenueSettings.removeTeamMember.useMutation({ onSuccess: () => utils.revenueSettings.get.invalidate() });
+
+  const [form, setForm] = useState({
+    baseDiscountPercent: "60",
+    couponDiscount: "750",
+    referralBonus: "500",
+    platformFeeRatePercent: "20",
+    teamBonusRatePercent: "16.667",
+    materialCost: "300",
+    monthlySubscription: "350",
+    estimatedMonthlySales: "30",
+  });
+  const [newMemberType, setNewMemberType] = useState<"teacher" | "salesperson">("teacher");
+  const [newMemberId, setNewMemberId] = useState<number | "">("");
+
+  useEffect(() => {
+    if (!settingsQuery.data) return;
+    const s = settingsQuery.data.settings;
+    setForm({
+      baseDiscountPercent: String(Math.round(s.baseDiscount * 100 * 1000) / 1000),
+      couponDiscount: String(s.couponDiscount),
+      referralBonus: String(s.referralBonus),
+      platformFeeRatePercent: String(Math.round(s.platformFeeRate * 100 * 1000) / 1000),
+      teamBonusRatePercent: String(Math.round(s.teamBonusRate * 100 * 1000) / 1000),
+      materialCost: String(s.materialCost),
+      monthlySubscription: String(s.monthlySubscription),
+      estimatedMonthlySales: String(s.estimatedMonthlySales),
+    });
+  }, [settingsQuery.data]);
+
+  const teacherOptions = (teachersQuery.data ?? []).map((t) => ({ id: t.id, name: t.name }));
+  const salespersonOptions = (salespeopleQuery.data ?? []).map((s) => ({ id: s.id, name: s.name }));
+  const memberOptions = newMemberType === "teacher" ? teacherOptions : salespersonOptions;
+
+  function nameOf(type: "teacher" | "salesperson", id: number) {
+    const list = type === "teacher" ? teacherOptions : salespersonOptions;
+    return list.find((p) => p.id === id)?.name ?? `#${id}`;
+  }
+
+  async function handleSaveSettings(e: React.FormEvent) {
+    e.preventDefault();
+    await updateMutation.mutateAsync({
+      baseDiscountPercent: parseFloat(form.baseDiscountPercent || "0"),
+      couponDiscount: parseInt(form.couponDiscount || "0", 10),
+      referralBonus: parseInt(form.referralBonus || "0", 10),
+      platformFeeRatePercent: parseFloat(form.platformFeeRatePercent || "0"),
+      teamBonusRatePercent: parseFloat(form.teamBonusRatePercent || "0"),
+      materialCost: parseInt(form.materialCost || "0", 10),
+      monthlySubscription: parseInt(form.monthlySubscription || "0", 10),
+      estimatedMonthlySales: parseInt(form.estimatedMonthlySales || "1", 10),
+    });
+  }
+
+  async function handleAddMember(e: React.FormEvent) {
+    e.preventDefault();
+    if (newMemberId === "") return;
+    await addMemberMutation.mutateAsync({ recipientType: newMemberType, recipientId: Number(newMemberId) });
+    setNewMemberId("");
+  }
+
+  return (
+    <div className="space-y-6">
+      <Section title="課程分潤參數">
+        <p className="text-xs text-slate-500">
+          對照《課程分潤與成本結構辦法》的可調整參數，改完按「儲存設定」後，之後每一筆用「課程收入分潤精靈」入帳的課程都會用新的數字計算。
+        </p>
+        <form onSubmit={handleSaveSettings} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <label className="label">目前基礎折數（1 年期，單位：%，例如 60 代表 6 折）</label>
+            <input
+              className="input"
+              inputMode="decimal"
+              value={form.baseDiscountPercent}
+              onChange={(e) => setForm({ ...form, baseDiscountPercent: e.target.value })}
+            />
+            <p className="text-xs text-slate-400 mt-1">2 年期自動 +10（+1 折）、3 年期自動 +20（+2 折），超過 100 一樣照算（110 = 原價 ×1.1）。</p>
+          </div>
+          <div>
+            <label className="label">優惠碼折抵金額</label>
+            <input
+              className="input"
+              inputMode="numeric"
+              value={form.couponDiscount}
+              onChange={(e) => setForm({ ...form, couponDiscount: e.target.value.replace(/[^\d]/g, "") })}
+            />
+          </div>
+          <div>
+            <label className="label">推廣/行銷抽成金額</label>
+            <input
+              className="input"
+              inputMode="numeric"
+              value={form.referralBonus}
+              onChange={(e) => setForm({ ...form, referralBonus: e.target.value.replace(/[^\d]/g, "") })}
+            />
+          </div>
+          <div>
+            <label className="label">平台費比例（%）</label>
+            <input
+              className="input"
+              inputMode="decimal"
+              value={form.platformFeeRatePercent}
+              onChange={(e) => setForm({ ...form, platformFeeRatePercent: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">每人團隊獎金比例（%）</label>
+            <input
+              className="input"
+              inputMode="decimal"
+              value={form.teamBonusRatePercent}
+              onChange={(e) => setForm({ ...form, teamBonusRatePercent: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">教材/物流成本（每套）</label>
+            <input
+              className="input"
+              inputMode="numeric"
+              value={form.materialCost}
+              onChange={(e) => setForm({ ...form, materialCost: e.target.value.replace(/[^\d]/g, "") })}
+            />
+          </div>
+          <div>
+            <label className="label">網站訂閱費（每月）</label>
+            <input
+              className="input"
+              inputMode="numeric"
+              value={form.monthlySubscription}
+              onChange={(e) => setForm({ ...form, monthlySubscription: e.target.value.replace(/[^\d]/g, "") })}
+            />
+          </div>
+          <div>
+            <label className="label">預估月銷量（套）</label>
+            <input
+              className="input"
+              inputMode="numeric"
+              value={form.estimatedMonthlySales}
+              onChange={(e) => setForm({ ...form, estimatedMonthlySales: e.target.value.replace(/[^\d]/g, "") })}
+            />
+          </div>
+          <div className="flex items-end">
+            <button className="btn-primary w-full" type="submit" disabled={updateMutation.isPending}>
+              {updateMutation.isPending ? "儲存中..." : "儲存設定"}
+            </button>
+          </div>
+        </form>
+      </Section>
+
+      <Section title="團隊獎金固定名單（例如：老闆、行銷、技術）">
+        <p className="text-xs text-slate-500">
+          這份名單裡的每一位，都會在每次用分潤精靈入帳課程收入時，各自拿到「平台費 × 每人團隊獎金比例（無條件進位）」。
+        </p>
+        <form onSubmit={handleAddMember} className="flex flex-wrap gap-2 items-end">
+          <div>
+            <label className="label">身份</label>
+            <select
+              className="input !w-32"
+              value={newMemberType}
+              onChange={(e) => {
+                setNewMemberType(e.target.value as "teacher" | "salesperson");
+                setNewMemberId("");
+              }}
+            >
+              <option value="teacher">教師</option>
+              <option value="salesperson">推銷者</option>
+            </select>
+          </div>
+          <div className="w-48">
+            <label className="label">人員</label>
+            <SearchableSelect options={memberOptions} value={newMemberId} onChange={(id) => setNewMemberId(id)} placeholder="搜尋姓名..." />
+          </div>
+          <button className="btn-primary" type="submit" disabled={addMemberMutation.isPending}>
+            新增至名單
+          </button>
+        </form>
+        <ul className="divide-y divide-slate-100">
+          {(settingsQuery.data?.members ?? []).map((m) => (
+            <li key={m.id} className="flex items-center justify-between py-2 text-sm">
+              <span>
+                {m.recipientType === "teacher" ? "教師" : "推銷者"} · {nameOf(m.recipientType as any, m.recipientId)}
+              </span>
+              <button className="btn-danger" onClick={() => removeMemberMutation.mutate({ id: m.id })}>
+                移除
+              </button>
+            </li>
+          ))}
+          {settingsQuery.data?.members.length === 0 && <li className="text-sm text-slate-400 py-2">尚未設定團隊獎金名單</li>}
+        </ul>
+      </Section>
+    </div>
   );
 }
 
@@ -311,6 +661,8 @@ export default function AdminPage() {
     { key: "salespeople", label: "推銷者管理" },
     { key: "courses", label: "課程管理" },
     { key: "expenseTypes", label: "支出類型管理" },
+    { key: "incomeTypes", label: "收入類型管理" },
+    { key: "revenue", label: "分潤設定" },
     { key: "users", label: "帳號與權限" },
   ];
 
@@ -333,6 +685,8 @@ export default function AdminPage() {
       {tab === "salespeople" && <SalespeopleAdmin />}
       {tab === "courses" && <CoursesAdmin />}
       {tab === "expenseTypes" && <ExpenseTypesAdmin />}
+      {tab === "incomeTypes" && <IncomeTypesAdmin />}
+      {tab === "revenue" && <RevenueSettingsAdmin />}
       {tab === "users" && <UsersAdmin />}
     </div>
   );

@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
-import { db } from "../db";
 import {
   teachers,
   salespeople,
@@ -16,7 +15,7 @@ import { toCsv, formatDate } from "../csv";
 
 const recipientTypeSchema = z.enum(["teacher", "salesperson"]);
 
-async function overviewFor(recipientType: "teacher" | "salesperson", list: { id: number; name: string }[]) {
+async function overviewFor(db: any, recipientType: "teacher" | "salesperson", list: { id: number; name: string }[]) {
   const ledgerTable = recipientType === "teacher" ? teacherLedger : salespersonLedger;
   const recipientColumn = recipientType === "teacher" ? teacherLedger.teacherId : salespersonLedger.salespersonId;
 
@@ -40,7 +39,7 @@ async function overviewFor(recipientType: "teacher" | "salesperson", list: { id:
           eq(advancePayments.status, "unsettled")
         )
       );
-    const unsettledAdvanceTotal = unsettled.reduce((sum, a) => sum + a.amount, 0);
+    const unsettledAdvanceTotal = unsettled.reduce((sum: number, a: any) => sum + a.amount, 0);
 
     results.push({
       recipientType,
@@ -65,23 +64,30 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export const reportsRouter = router({
-  balanceOverview: protectedProcedure.query(async () => {
-    const teacherList = await db.select({ id: teachers.id, name: teachers.name }).from(teachers);
-    const salespersonList = await db.select({ id: salespeople.id, name: salespeople.name }).from(salespeople);
+  /** 教師/推銷者本人帳號無權查看全公司所有人的應付總覽，只能透過自己的子記帳表頁面看自己的餘額 */
+  balanceOverview: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role === "teacher_self" || ctx.user.role === "salesperson_self") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "無權查看應付總覽" });
+    }
+    const teacherList = await ctx.db.select({ id: teachers.id, name: teachers.name }).from(teachers);
+    const salespersonList = await ctx.db.select({ id: salespeople.id, name: salespeople.name }).from(salespeople);
 
     const [teacherOverview, salespersonOverview] = await Promise.all([
-      overviewFor("teacher", teacherList),
-      overviewFor("salesperson", salespersonList),
+      overviewFor(ctx.db, "teacher", teacherList),
+      overviewFor(ctx.db, "salesperson", salespersonList),
     ]);
 
     return [...teacherOverview, ...salespersonOverview];
   }),
 
-  /** 匯出母記帳表為 CSV */
+  /** 匯出母記帳表為 CSV（教師/推銷者本人帳號無權匯出，跟看母記帳表列表一樣的權限限制） */
   exportMainLedgerCsv: protectedProcedure
     .input(z.object({ dateFrom: z.number().optional(), dateTo: z.number().optional() }).optional())
-    .query(async ({ input }) => {
-      const rows = await db
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role === "teacher_self" || ctx.user.role === "salesperson_self") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "無權匯出母記帳表" });
+      }
+      const rows = await ctx.db
         .select({
           id: mainLedger.id,
           type: mainLedger.type,
@@ -99,12 +105,12 @@ export const reportsRouter = router({
         .orderBy(asc(mainLedger.id));
 
       const filtered = rows.filter(
-        (r) => (!input?.dateFrom || r.createdAt >= input.dateFrom) && (!input?.dateTo || r.createdAt <= input.dateTo)
+        (r: any) => (!input?.dateFrom || r.createdAt >= input.dateFrom) && (!input?.dateTo || r.createdAt <= input.dateTo)
       );
 
       const csv = toCsv(
         ["編號", "日期", "類型", "項目", "名稱", "金額", "餘額", "編輯者", "備註"],
-        filtered.map((r) => [
+        filtered.map((r: any) => [
           r.id,
           formatDate(r.createdAt),
           TYPE_LABELS[r.type] ?? r.type,
@@ -148,18 +154,18 @@ export const reportsRouter = router({
 
       const nameRows =
         recipientType === "teacher"
-          ? await db.select({ name: teachers.name }).from(teachers).where(eq(teachers.id, recipientId)).limit(1)
-          : await db.select({ name: salespeople.name }).from(salespeople).where(eq(salespeople.id, recipientId)).limit(1);
+          ? await ctx.db.select({ name: teachers.name }).from(teachers).where(eq(teachers.id, recipientId)).limit(1)
+          : await ctx.db.select({ name: salespeople.name }).from(salespeople).where(eq(salespeople.id, recipientId)).limit(1);
       const name = nameRows[0]?.name ?? `#${recipientId}`;
 
-      const rows = await db.select().from(ledgerTable).where(eq(recipientColumn, recipientId)).orderBy(asc(ledgerTable.id));
+      const rows = await ctx.db.select().from(ledgerTable).where(eq(recipientColumn, recipientId)).orderBy(asc(ledgerTable.id));
       const filtered = rows.filter(
-        (r) => (!input.dateFrom || r.createdAt >= input.dateFrom) && (!input.dateTo || r.createdAt <= input.dateTo)
+        (r: any) => (!input.dateFrom || r.createdAt >= input.dateFrom) && (!input.dateTo || r.createdAt <= input.dateTo)
       );
 
       const csv = toCsv(
         ["編號", "日期", "項目", "名稱", "來源", "類型", "原金額", "分潤比例", "個人金額", "私人餘額"],
-        filtered.map((r) => [
+        filtered.map((r: any) => [
           r.id,
           formatDate(r.createdAt),
           r.itemName,
@@ -197,17 +203,17 @@ export const reportsRouter = router({
       if (input?.status) conditions.push(eq(advancePayments.status, input.status));
 
       const rows = conditions.length
-        ? await db.select().from(advancePayments).where(and(...conditions)).orderBy(desc(advancePayments.id))
-        : await db.select().from(advancePayments).orderBy(desc(advancePayments.id));
+        ? await ctx.db.select().from(advancePayments).where(and(...conditions)).orderBy(desc(advancePayments.id))
+        : await ctx.db.select().from(advancePayments).orderBy(desc(advancePayments.id));
 
-      const teacherList = await db.select().from(teachers);
-      const salespersonList = await db.select().from(salespeople);
+      const teacherList = await ctx.db.select().from(teachers);
+      const salespersonList = await ctx.db.select().from(salespeople);
       const nameOf = (type: string, id: number) =>
-        (type === "teacher" ? teacherList : salespersonList).find((p) => p.id === id)?.name ?? `#${id}`;
+        (type === "teacher" ? teacherList : salespersonList).find((p: any) => p.id === id)?.name ?? `#${id}`;
 
       const csv = toCsv(
         ["編號", "建立日期", "身份", "對象", "項目", "金額", "狀態", "核銷來源", "備註"],
-        rows.map((a) => [
+        rows.map((a: any) => [
           a.id,
           formatDate(a.createdAt),
           a.recipientType === "teacher" ? "教師" : "推銷者",

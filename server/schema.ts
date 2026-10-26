@@ -1,4 +1,4 @@
-import { sqliteTable, integer, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, integer, text, real, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 const timestamps = {
@@ -60,6 +60,9 @@ export const courses = sqliteTable("courses", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
   type: text("type").notNull().default("personal"), // personal | collaborative
+  teacherId: integer("teacher_id"), // 課程主理教師（分潤精靈用來決定 80% 主理分潤歸屬）
+  basePrice: integer("base_price"), // （舊欄位，保留相容）早鳥價／基礎售價
+  originalPrice: integer("original_price"), // 原價（分潤精靈依「基礎折數＋年期加成」從這裡算出實際入帳金額）
   ...timestamps,
 });
 
@@ -74,6 +77,17 @@ export const expenseTypes = sqliteTable(
     ...timestamps,
   },
   (t) => ({ nameIdx: uniqueIndex("expense_types_name_idx").on(t.name) })
+);
+
+// ── IncomeTypes / 其他收入類型（不含課程收入，課程收入走課程收入分潤精靈） ─────────────────────────────
+export const incomeTypes = sqliteTable(
+  "income_types",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    ...timestamps,
+  },
+  (t) => ({ nameIdx: uniqueIndex("income_types_name_idx").on(t.name) })
 );
 
 // ── MainLedger / 母記帳表 ─────────────────────────────
@@ -163,6 +177,28 @@ export const auditLog = sqliteTable("audit_log", {
   targetId: integer("target_id").notNull(),
   beforeData: text("before_data"),
   afterData: text("after_data"),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+
+// ── RevenueSettings / 課程分潤與成本結構設定（單一列，id 固定為 1） ─────────────────────────────
+export const revenueSettings = sqliteTable("revenue_settings", {
+  id: integer("id").primaryKey(),
+  baseDiscount: real("base_discount").notNull().default(0.6), // 目前基礎折數（1 年期），例如 0.6 代表 6 折
+  couponDiscount: integer("coupon_discount").notNull().default(750), // 優惠碼折抵金額
+  referralBonus: integer("referral_bonus").notNull().default(500), // 推廣/行銷人員抽成金額
+  platformFeeRate: real("platform_fee_rate").notNull().default(0.2), // 平台費比例（0~1）
+  teamBonusRate: real("team_bonus_rate").notNull().default(50 / 3 / 100), // 每位團隊成員從平台費中抽取的比例（0~1）
+  materialCost: integer("material_cost").notNull().default(300), // 教材/物流成本（每套課程）
+  monthlySubscription: integer("monthly_subscription").notNull().default(350), // 網站訂閱費（每月固定）
+  estimatedMonthlySales: integer("estimated_monthly_sales").notNull().default(30), // 預估月銷量，用來分攤月固定成本
+  updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
+});
+
+// ── RevenueTeamMembers / 團隊獎金固定分配名單（例如：老闆、行銷、技術） ─────────────────────────────
+export const revenueTeamMembers = sqliteTable("revenue_team_members", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  recipientType: text("recipient_type").notNull(), // teacher | salesperson
+  recipientId: integer("recipient_id").notNull(),
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
 });
 

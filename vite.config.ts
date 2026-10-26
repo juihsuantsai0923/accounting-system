@@ -4,6 +4,7 @@ import path from "path";
 
 export default defineConfig({
   root: "client",
+  envDir: path.resolve(__dirname), // .env files 讀取專案根目錄（而不是 client/ 子目錄），跟 root 分開設定
   plugins: [react()],
   resolve: {
     alias: {

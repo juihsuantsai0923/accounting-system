@@ -1,5 +1,6 @@
 import { trpc } from "../lib/trpc";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
+import { useAuth } from "../lib/auth";
 import { downloadTextFile } from "../lib/download";
 
 function fmt(n: number) {
@@ -15,8 +16,13 @@ function toCsvClient(headers: string[], rows: (string | number)[][]) {
 }
 
 export default function Dashboard() {
-  const overviewQuery = trpc.reports.balanceOverview.useQuery();
-  const mainLedgerQuery = trpc.mainLedger.list.useQuery();
+  const { user } = useAuth();
+  // 教師/推銷者本人帳號沒有母記帳表／全公司應付總覽的權限（後端也已經擋下來），
+  // 這個總覽頁是給財務人員看全公司數字用的，本人帳號應該直接看自己的子記帳表就好，
+  // 所以這兩個查詢對本人角色一律不觸發，避免打到會被後端拒絕的 API。
+  const isSelfRole = user?.role === "teacher_self" || user?.role === "salesperson_self";
+  const overviewQuery = trpc.reports.balanceOverview.useQuery(undefined, { enabled: !isSelfRole });
+  const mainLedgerQuery = trpc.mainLedger.list.useQuery(undefined, { enabled: !isSelfRole });
 
   const totalIncome = (mainLedgerQuery.data ?? []).filter((e) => e.type === "income").reduce((s, e) => s + e.amount, 0);
   const totalExpense = (mainLedgerQuery.data ?? []).filter((e) => e.type === "expense").reduce((s, e) => s + e.amount, 0);
@@ -36,6 +42,22 @@ export default function Dashboard() {
       ])
     );
     downloadTextFile(`應付總覽_${new Date().toISOString().slice(0, 10)}.csv`, csv);
+  }
+
+  // 教師/推銷者本人帳號：直接導向自己的子記帳表頁面，不顯示全公司的儀表板總覽
+  if (user?.role === "teacher_self") {
+    return user.linkedTeacherId ? (
+      <Navigate to={`/teacher/${user.linkedTeacherId}`} replace />
+    ) : (
+      <div className="p-8 text-center text-slate-400">尚未綁定教師資料，請聯絡管理員設定帳號。</div>
+    );
+  }
+  if (user?.role === "salesperson_self") {
+    return user.linkedSalespersonId ? (
+      <Navigate to={`/salesperson/${user.linkedSalespersonId}`} replace />
+    ) : (
+      <div className="p-8 text-center text-slate-400">尚未綁定推銷者資料，請聯絡管理員設定帳號。</div>
+    );
   }
 
   return (
@@ -62,7 +84,7 @@ export default function Dashboard() {
       </div>
 
       <div className="card">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
           <h2 className="font-medium text-slate-700">應付總覽（公司目前欠每個人多少錢）</h2>
           <div className="flex items-center gap-3">
             <div className="text-sm text-slate-500">合計應付：{fmt(totalOwed)}</div>
@@ -71,6 +93,7 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
+        <div className="table-wrap">
         <table className="data-table">
           <thead>
             <tr>
@@ -106,6 +129,7 @@ export default function Dashboard() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

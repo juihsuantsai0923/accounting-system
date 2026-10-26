@@ -8,6 +8,8 @@ import TeacherLedgerPage from "./pages/TeacherLedgerPage";
 import SalespersonLedgerPage from "./pages/SalespersonLedgerPage";
 import AdvancePaymentsPage from "./pages/AdvancePaymentsPage";
 import AdminPage from "./pages/AdminPage";
+import AccountPage from "./pages/AccountPage";
+import { TeachersDirectoryPage, SalespeopleDirectoryPage } from "./pages/PeopleDirectoryPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -29,10 +31,13 @@ export default function App() {
       >
         <Route path="/" element={<Dashboard />} />
         <Route path="/ledger" element={<MainLedgerPage />} />
+        <Route path="/teachers" element={<TeachersDirectoryPage />} />
+        <Route path="/salespeople" element={<SalespeopleDirectoryPage />} />
         <Route path="/teacher/:id" element={<TeacherLedgerPage />} />
         <Route path="/salesperson/:id" element={<SalespersonLedgerPage />} />
         <Route path="/advance" element={<AdvancePaymentsPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/account" element={<AccountPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

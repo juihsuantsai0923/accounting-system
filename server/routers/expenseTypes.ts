@@ -1,14 +1,13 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure, staffProcedure } from "../trpc";
-import { db } from "../db";
 import { expenseTypes } from "../schema";
 import { eq } from "drizzle-orm";
 import { writeAudit } from "../ledger";
 
 export const expenseTypesRouter = router({
-  list: publicProcedure.query(async () => {
-    return db.select().from(expenseTypes).orderBy(expenseTypes.id);
+  list: publicProcedure.query(async ({ ctx }) => {
+    return ctx.db.select().from(expenseTypes).orderBy(expenseTypes.id);
   }),
 
   create: staffProcedure
@@ -20,15 +19,15 @@ export const expenseTypesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const [created] = await db.insert(expenseTypes).values(input).returning();
-      await writeAudit(ctx.user.id, "create", "expenseType", created.id, null, created);
+      const [created] = await ctx.db.insert(expenseTypes).values(input).returning();
+      await writeAudit(ctx.db, ctx.user.id, "create", "expenseType", created.id, null, created);
       return created;
     }),
 
   delete: staffProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
-    const [before] = await db.select().from(expenseTypes).where(eq(expenseTypes.id, input.id)).limit(1);
+    const [before] = await ctx.db.select().from(expenseTypes).where(eq(expenseTypes.id, input.id)).limit(1);
     if (!before) throw new TRPCError({ code: "NOT_FOUND", message: "ExpenseType not found" });
-    await db.delete(expenseTypes).where(eq(expenseTypes.id, input.id));
-    await writeAudit(ctx.user.id, "delete", "expenseType", input.id, before, null);
+    await ctx.db.delete(expenseTypes).where(eq(expenseTypes.id, input.id));
+    await writeAudit(ctx.db, ctx.user.id, "delete", "expenseType", input.id, before, null);
   }),
 });

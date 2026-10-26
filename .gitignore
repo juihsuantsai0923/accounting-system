@@ -2,3 +2,7 @@ node_modules
 dist
 data/*.db
 .env
+data/*.db-shm
+data/*.db-wal
+.wrangler
+*.zip

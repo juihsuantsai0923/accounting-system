@@ -58,6 +58,52 @@ npm run build      # 建置前端靜態檔到 dist/client
 npm start          # NODE_ENV=production 啟動 Express，同時提供 API 與靜態前端（4000 埠）
 ```
 
+## 免費部署：Cloudflare Workers + Pages + D1
+
+除了本機/Docker（Express + better-sqlite3）之外，這個專案也可以部署到 **Cloudflare 的免費方案**（Workers 後端 + D1 資料庫 + Pages 前端），資料會持久保存，不會因為重啟或休眠而消失，而且完全不用付費。這是透過把資料庫存取全部改成 `ctx.db`（每次請求時才從 D1 binding 建立連線）達成的，`server/worker.ts` 是 Workers 專用的進入點，Express 版本（`server/index.ts`）完全不受影響、可以繼續在本機或 Docker 上跑。
+
+### 步驟（都在你自己的電腦上、已裝好 Node.js 之後執行）
+
+```bash
+# 0. 安裝依賴（若尚未安裝）
+npm install
+
+# 1. 登入 Cloudflare（會開瀏覽器要你授權）
+npx wrangler login
+
+# 2. 建立 D1 資料庫
+npx wrangler d1 create accounting-system-db
+# 指令會印出一段 database_id，把它複製貼到 wrangler.toml 的 database_id = "..." 那一行
+
+# 3. 執行建表 migration（正式的遠端 D1 資料庫）
+npm run cf:migrate
+
+# 4. 設定機密環境變數（每個指令執行後會要你貼上值，按 Enter 送出）
+npx wrangler secret put JWT_SECRET
+npx wrangler secret put ADMIN_EMAIL
+npx wrangler secret put ADMIN_PASSWORD
+
+# 5. 部署後端（Cloudflare Workers）
+npm run cf:deploy
+# 完成後會顯示一個網址，例如 https://accounting-system-api.<你的帳號>.workers.dev
+```
+
+接著部署前端到 Cloudflare Pages：
+
+```bash
+# 6. 在 client 目錄或專案根目錄新增 .env.production，指向剛剛部署好的 Workers 網址
+echo "VITE_API_URL=https://accounting-system-api.<你的帳號>.workers.dev" > .env.production
+
+# 7. 建置並部署前端到 Cloudflare Pages
+npm run cf:pages:deploy
+```
+
+部署完成後，Cloudflare Pages 會給你一個公開網址（例如 `https://accounting-system.pages.dev`），把它分享給同事就可以直接使用，資料存在 D1（雲端 SQLite），重開機、重新部署都不會遺失。
+
+> ⚠️ 記得**登入後立刻到「管理面板」更換預設管理員密碼**（如果第 4 步沒有另外指定 `ADMIN_PASSWORD`，預設會是 `admin123`）。
+>
+> 本機開發時想直接用 Workers + 本地 D1 模擬環境測試，可以用 `npm run cf:migrate:local` 建本地 D1 表，再用 `npm run cf:dev` 啟動（預設監聽 http://localhost:8787）。
+
 ## 核心功能對照
 
 - **原有功能**：教師/推銷者/課程/支出類型管理、母記帳表多方分配、金額整數化、分潤比例與原金額欄位、餘額自動計算與級聯刪除（改為軟刪除＋可還原）。

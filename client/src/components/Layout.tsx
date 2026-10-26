@@ -1,14 +1,18 @@
+import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { trpc } from "../lib/trpc";
 import { useAuth, ROLE_LABELS, canManage } from "../lib/auth";
+import LeviaxLogo from "./LeviaxLogo";
 
-function TabLink({ to, children }: { to: string; children: React.ReactNode }) {
+function TabLink({ to, children, onClick }: { to: string; children: React.ReactNode; onClick?: () => void }) {
   return (
     <NavLink
       to={to}
+      onClick={onClick}
       className={({ isActive }) =>
-        `px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap ${
-          isActive ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100"
+        `px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-150 ${
+          isActive
+            ? "bg-white/10 text-gold-400 shadow-inner ring-1 ring-gold-500/30"
+            : "text-white/70 hover:bg-white/10 hover:text-white"
         }`
       }
     >
@@ -20,8 +24,7 @@ function TabLink({ to, children }: { to: string; children: React.ReactNode }) {
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const teachersQuery = trpc.teachers.list.useQuery(undefined, { enabled: !!user });
-  const salespeopleQuery = trpc.salespeople.list.useQuery(undefined, { enabled: !!user });
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const isTeacherSelf = user?.role === "teacher_self";
   const isSalespersonSelf = user?.role === "salesperson_self";
@@ -31,48 +34,113 @@ export default function Layout() {
     navigate("/login");
   };
 
+  const closeMenu = () => setMenuOpen(false);
+
+  // 教師/推銷者人數變多之後，導覽列不再逐一列出每個人的分頁（否則手機上會排成一長串滑不完），
+  // 改成統一一個「教師」/「推銷者」入口，點進去是可以搜尋姓名的列表頁。
+  // 教師本人/推銷者本人登入時，本來就只看得到自己的資料，直接連到自己的子記帳表即可，不需要列表頁。
+  const navLinks = (
+    <>
+      {!isTeacherSelf && !isSalespersonSelf && (
+        <TabLink to="/" onClick={closeMenu}>
+          儀表板
+        </TabLink>
+      )}
+      {!isTeacherSelf && !isSalespersonSelf && (
+        <TabLink to="/ledger" onClick={closeMenu}>
+          母記帳表
+        </TabLink>
+      )}
+      {!isSalespersonSelf &&
+        (isTeacherSelf && user?.linkedTeacherId ? (
+          <TabLink to={`/teacher/${user.linkedTeacherId}`} onClick={closeMenu}>
+            我的記帳表
+          </TabLink>
+        ) : (
+          <TabLink to="/teachers" onClick={closeMenu}>
+            教師
+          </TabLink>
+        ))}
+      {!isTeacherSelf &&
+        (isSalespersonSelf && user?.linkedSalespersonId ? (
+          <TabLink to={`/salesperson/${user.linkedSalespersonId}`} onClick={closeMenu}>
+            我的記帳表
+          </TabLink>
+        ) : (
+          <TabLink to="/salespeople" onClick={closeMenu}>
+            推銷者
+          </TabLink>
+        ))}
+      <TabLink to="/advance" onClick={closeMenu}>
+        代墊管理
+      </TabLink>
+      {canManage(user?.role) && (
+        <TabLink to="/admin" onClick={closeMenu}>
+          管理面板
+        </TabLink>
+      )}
+      <TabLink to="/account" onClick={closeMenu}>
+        帳號設定
+      </TabLink>
+    </>
+  );
+
   return (
     <div className="min-h-screen">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="font-semibold text-slate-800">記帳拆賬財務系統</div>
-          <div className="flex items-center gap-3 text-sm text-slate-500">
+      <header className="bg-brand-gradient shadow-header sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              className="sm:hidden inline-flex items-center justify-center rounded-lg px-2.5 py-1.5 text-white/80 bg-white/10 hover:bg-white/20 transition-colors shrink-0"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label="開啟選單"
+              type="button"
+            >
+              ☰
+            </button>
+            {/* 商標：與登入頁面統一改為白底圓角方框，裡面放圖示並留白，
+                深藍圖示原色在深藍色頁首上才不會融為一體看不見 */}
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-white shadow-md flex items-center justify-center shrink-0">
+                <LeviaxLogo className="h-5 w-5 sm:h-6 sm:w-6" />
+              </div>
+              {/* 字體與顏色改回和下方功能列一致（沿用頁面預設字體、白色文字），但字級加大作為標題 */}
+              <div className="font-semibold text-white text-lg sm:text-xl tracking-tight truncate">澈點科學財務系統</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-white/70 shrink-0">
             {user && (
               <>
-                <span>
+                <span className="hidden sm:inline">
                   {user.name}（{ROLE_LABELS[user.role] ?? user.role}）
                 </span>
-                <button onClick={handleLogout} className="btn-secondary">
+                <button
+                  onClick={handleLogout}
+                  className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-sm font-medium text-white/90 bg-white/10 border border-white/10 hover:bg-white/20 transition-colors"
+                >
                   登出
                 </button>
               </>
             )}
           </div>
         </div>
-        <div className="max-w-7xl mx-auto px-4 pb-2 flex gap-2 overflow-x-auto">
-          <TabLink to="/">儀表板</TabLink>
-          {!isTeacherSelf && !isSalespersonSelf && <TabLink to="/ledger">母記帳表</TabLink>}
-          {!isSalespersonSelf &&
-            teachersQuery.data
-              ?.filter((t) => !isTeacherSelf || t.id === user?.linkedTeacherId)
-              .map((t) => (
-                <TabLink key={t.id} to={`/teacher/${t.id}`}>
-                  教師：{t.name}
-                </TabLink>
-              ))}
-          {!isTeacherSelf &&
-            salespeopleQuery.data
-              ?.filter((s) => !isSalespersonSelf || s.id === user?.linkedSalespersonId)
-              .map((s) => (
-                <TabLink key={s.id} to={`/salesperson/${s.id}`}>
-                  推銷者：{s.name}
-                </TabLink>
-              ))}
-          <TabLink to="/advance">代墊管理</TabLink>
-          {canManage(user?.role) && <TabLink to="/admin">管理面板</TabLink>}
-        </div>
+
+        {/* 桌面/平板：橫向分頁列（與上方商標列拉開一點距離，避免看起來太擠） */}
+        <div className="hidden sm:flex max-w-7xl mx-auto px-4 pt-2 pb-3 gap-1 overflow-x-auto">{navLinks}</div>
+
+        {/* 手機直式：點漢堡選單展開的直向清單 */}
+        {menuOpen && (
+          <div className="sm:hidden border-t border-white/10 px-3 py-3 flex flex-col gap-1 bg-brand-800">
+            {user && (
+              <div className="text-xs text-white/60 pb-2">
+                {user.name}（{ROLE_LABELS[user.role] ?? user.role}）
+              </div>
+            )}
+            {navLinks}
+          </div>
+        )}
       </header>
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 py-6">
         <Outlet />
       </main>
     </div>

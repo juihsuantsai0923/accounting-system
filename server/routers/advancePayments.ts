@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, staffProcedure } from "../trpc";
-import { db } from "../db";
 import { advancePayments, teacherLedger, salespersonLedger } from "../schema";
 import { and, desc, eq } from "drizzle-orm";
 import { getCurrentBalance, recalculateBalance, writeAudit } from "../ledger";
@@ -34,8 +33,8 @@ export const advancePaymentsRouter = router({
       if (status) conditions.push(eq(advancePayments.status, status));
 
       const query = conditions.length
-        ? db.select().from(advancePayments).where(and(...conditions))
-        : db.select().from(advancePayments);
+        ? ctx.db.select().from(advancePayments).where(and(...conditions))
+        : ctx.db.select().from(advancePayments);
 
       return query.orderBy(desc(advancePayments.id));
     }),
@@ -52,6 +51,7 @@ export const advancePaymentsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const db = ctx.db;
       const amount = parseInt(input.amount, 10);
       if (amount <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "代墊金額必須大於 0" });
 
@@ -70,7 +70,7 @@ export const advancePaymentsRouter = router({
 
       const ledgerTable = input.recipientType === "teacher" ? teacherLedger : salespersonLedger;
       const recipientColumn = input.recipientType === "teacher" ? "teacherId" : "salespersonId";
-      const currentBalance = await getCurrentBalance(input.recipientType, input.recipientId);
+      const currentBalance = await getCurrentBalance(db, input.recipientType, input.recipientId);
 
       await db.insert(ledgerTable).values({
         [recipientColumn]: input.recipientId,
@@ -87,13 +87,14 @@ export const advancePaymentsRouter = router({
         editedBy: ctx.user.id,
       } as any);
 
-      await writeAudit(ctx.user.id, "create", "advancePayment", advance.id, null, advance);
+      await writeAudit(db, ctx.user.id, "create", "advancePayment", advance.id, null, advance);
       return advance;
     }),
 
   settle: staffProcedure
     .input(z.object({ id: z.number(), mainLedgerId: z.number().nullable().optional() }))
     .mutation(async ({ ctx, input }) => {
+      const db = ctx.db;
       const [advance] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
       if (!advance) throw new TRPCError({ code: "NOT_FOUND", message: "代墊記錄不存在" });
       if (advance.status !== "unsettled") throw new TRPCError({ code: "BAD_REQUEST", message: "此代墊已核銷" });
@@ -109,7 +110,7 @@ export const advancePaymentsRouter = router({
       if (!mainLedgerId) {
         const ledgerTable = advance.recipientType === "teacher" ? teacherLedger : salespersonLedger;
         const recipientColumn = advance.recipientType === "teacher" ? "teacherId" : "salespersonId";
-        const currentBalance = await getCurrentBalance(advance.recipientType as "teacher" | "salesperson", advance.recipientId);
+        const currentBalance = await getCurrentBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
 
         await db.insert(ledgerTable).values({
           [recipientColumn]: advance.recipientId,
@@ -127,12 +128,13 @@ export const advancePaymentsRouter = router({
         } as any);
       }
 
-      await writeAudit(ctx.user.id, "settle", "advancePayment", input.id, advance, { status: "settled", mainLedgerId });
+      await writeAudit(db, ctx.user.id, "settle", "advancePayment", input.id, advance, { status: "settled", mainLedgerId });
       const [updated] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
       return updated;
     }),
 
   unsettle: staffProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+    const db = ctx.db;
     const [advance] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
     if (!advance) throw new TRPCError({ code: "NOT_FOUND", message: "代墊記錄不存在" });
     if (advance.status !== "settled") throw new TRPCError({ code: "BAD_REQUEST", message: "此代墊尚未核銷" });
@@ -153,14 +155,15 @@ export const advancePaymentsRouter = router({
       .set({ status: "unsettled", settledByMainLedgerId: null, settledAt: null, updatedAt: Date.now() })
       .where(eq(advancePayments.id, input.id));
 
-    await recalculateBalance(advance.recipientType as "teacher" | "salesperson", advance.recipientId);
-    await writeAudit(ctx.user.id, "unsettle", "advancePayment", input.id, advance, { status: "unsettled" });
+    await recalculateBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
+    await writeAudit(db, ctx.user.id, "unsettle", "advancePayment", input.id, advance, { status: "unsettled" });
 
     const [updated] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
     return updated;
   }),
 
   delete: staffProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+    const db = ctx.db;
     const [advance] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
     if (!advance) throw new TRPCError({ code: "NOT_FOUND", message: "代墊記錄不存在" });
     if (advance.status === "settled") {
@@ -171,7 +174,7 @@ export const advancePaymentsRouter = router({
     await db.delete(ledgerTable).where(eq(ledgerTable.advancePaymentId, advance.id));
     await db.delete(advancePayments).where(eq(advancePayments.id, input.id));
 
-    await recalculateBalance(advance.recipientType as "teacher" | "salesperson", advance.recipientId);
-    await writeAudit(ctx.user.id, "delete", "advancePayment", input.id, advance, null);
+    await recalculateBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
+    await writeAudit(db, ctx.user.id, "delete", "advancePayment", input.id, advance, null);
   }),
 });
