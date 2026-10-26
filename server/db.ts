@@ -3,7 +3,8 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import fs from "fs";
 import path from "path";
 import * as schema from "./schema";
-import { createTableStatements, courseColumnMigrations, revenueSettingsColumnMigrations } from "./schema-sql";
+import { createTableStatements, courseColumnMigrations, revenueSettingsColumnMigrations, mainLedgerColumnMigrations } from "./schema-sql";
+import { SEED_BOOKS, SEED_COUPONS } from "./catalogSeed";
 
 // 資料庫檔案位置可用環境變數 DATA_DIR 覆寫（例如部署平台掛載的持久化磁碟路徑）
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.resolve(process.cwd(), "data");
@@ -30,6 +31,20 @@ function applyColumnMigrations(table: string, migrations: { column: string; stat
 }
 applyColumnMigrations("courses", courseColumnMigrations);
 applyColumnMigrations("revenue_settings", revenueSettingsColumnMigrations);
+applyColumnMigrations("main_ledger", mainLedgerColumnMigrations);
+
+// 書籍與優惠碼初始資料（已存在同名／同代碼就略過，不會覆蓋管理面板改過的價格）
+{
+  const now = Date.now();
+  const insertBook = sqlite.prepare(
+    "INSERT OR IGNORE INTO books (name, kind, price, is_active, sort_order, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)"
+  );
+  for (const b of SEED_BOOKS) insertBook.run(b.name, b.kind, b.price, b.sortOrder, now, now);
+  const insertCoupon = sqlite.prepare(
+    "INSERT OR IGNORE INTO coupons (code, discount_rate, valid_until, is_active, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
+  );
+  for (const c of SEED_COUPONS) insertCoupon.run(c.code, c.discountRate, c.validUntil, now, now);
+}
 
 export const db = drizzle(sqlite, { schema });
 export { sqlite, dataDir };

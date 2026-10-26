@@ -15,6 +15,7 @@ export const coursesRouter = router({
       z.object({
         name: z.string().min(1),
         type: z.enum(["personal", "collaborative"]),
+        category: z.enum(["online", "tutoring"]).optional(),
         teacherId: z.number().nullable().optional(),
         basePrice: z.number().int().nullable().optional(),
         originalPrice: z.number().int().nullable().optional(),
@@ -32,6 +33,7 @@ export const coursesRouter = router({
         id: z.number(),
         name: z.string().min(1).optional(),
         type: z.enum(["personal", "collaborative"]).optional(),
+        category: z.enum(["online", "tutoring"]).optional(),
         teacherId: z.number().nullable().optional(),
         basePrice: z.number().int().nullable().optional(),
         originalPrice: z.number().int().nullable().optional(),

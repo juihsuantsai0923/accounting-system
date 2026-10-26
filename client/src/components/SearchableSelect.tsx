@@ -14,8 +14,8 @@ interface SearchableSelectProps {
 }
 
 /**
- * 下拉搜尋選單：教師/推銷者人數變多之後，一般 <select> 要一直往下滑很難找，
- * 這個元件讓使用者可以直接打字篩選姓名，適合用在會列出很多人的表單欄位。
+ * 下拉搜尋選單：人員、課程、書目變多之後，一般 <select> 要一直往下滑很難找，
+ * 這個元件讓使用者可以直接打字篩選，適合用在選項很多的表單欄位。
  */
 export default function SearchableSelect({ options, value, onChange, placeholder = "請選擇...", className = "" }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
@@ -48,12 +48,12 @@ export default function SearchableSelect({ options, value, onChange, placeholder
           <input
             autoFocus
             className="input rounded-none rounded-t-lg border-0 border-b border-slate-200 focus:ring-0"
-            placeholder="輸入姓名搜尋..."
+            placeholder="輸入關鍵字搜尋..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
           <div className="overflow-y-auto">
-            {filtered.length === 0 && <div className="px-3 py-2 text-sm text-slate-400">查無符合的人員</div>}
+            {filtered.length === 0 && <div className="px-3 py-2 text-sm text-slate-400">查無符合的選項</div>}
             {filtered.map((o) => (
               <button
                 key={o.id}

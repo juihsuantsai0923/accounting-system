@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import { courses, revenueSettings, revenueTeamMembers } from "./schema";
+import { eq, inArray } from "drizzle-orm";
+import { books, coupons, courses, revenueSettings, revenueTeamMembers } from "./schema";
 
 export interface RevenueSettingsRow {
   id: number;
@@ -11,6 +11,7 @@ export interface RevenueSettingsRow {
   materialCost: number;
   monthlySubscription: number;
   estimatedMonthlySales: number;
+  tutoringReserveRate: number;
 }
 
 /** 對照《課程分潤與成本結構辦法》文件裡的預設數字 */
@@ -23,6 +24,7 @@ export const DEFAULT_REVENUE_SETTINGS: Omit<RevenueSettingsRow, "id"> = {
   materialCost: 300,
   monthlySubscription: 350,
   estimatedMonthlySales: 30,
+  tutoringReserveRate: 0.05, // 小班家教：實收金額的 5% 留給公積金，其餘全給主理教師
 };
 
 export type CourseYears = 1 | 2 | 3;
@@ -83,6 +85,7 @@ export class CourseIncomeError extends Error {
 export async function computeCourseIncome(db: any, input: CourseIncomeInput) {
   const [course] = await db.select().from(courses).where(eq(courses.id, input.courseId)).limit(1);
   if (!course) throw new CourseIncomeError("找不到課程");
+  if (course.category === "tutoring") throw new CourseIncomeError("這門課是小班家教，請改用「小班家教」入帳");
   if (!course.teacherId) throw new CourseIncomeError("此課程尚未設定所屬教師，請至管理面板「課程管理」設定");
 
   const originalPrice = course.originalPrice ?? course.basePrice;
@@ -147,4 +150,61 @@ export async function computeCourseIncome(db: any, input: CourseIncomeInput) {
     costPerCourse,
     platformReserve,
   };
+}
+
+/**
+ * 小班家教收入：跟線上課程不同，不套折數、優惠碼、推廣抽成與團隊獎金。
+ *   公積金 = 實收金額 × 小班家教公積金比例（四捨五入到元）
+ *   主理教師 = 實收金額 − 公積金
+ * 母記帳表記錄實收全額，公積金部分不分給任何人（留在公司）。
+ */
+export async function computeTutoringIncome(db: any, input: { courseId: number; amount: number }) {
+  const [course] = await db.select().from(courses).where(eq(courses.id, input.courseId)).limit(1);
+  if (!course) throw new CourseIncomeError("找不到課程");
+  if (course.category !== "tutoring") throw new CourseIncomeError("這門課不是小班家教，請改用「線上課程」入帳");
+  if (!course.teacherId) throw new CourseIncomeError("此課程尚未設定主理教師，請至管理面板「課程管理」設定");
+  if (!Number.isInteger(input.amount) || input.amount <= 0) throw new CourseIncomeError("實收金額必須是大於 0 的整數");
+
+  const settings = await getRevenueSettings(db);
+  const reserve = Math.round(input.amount * settings.tutoringReserveRate);
+  const teacherShare = input.amount - reserve;
+  const distributions: DistItem[] = [
+    { type: "teacher", recipientId: course.teacherId, amount: teacherShare, role: "owner", itemNameSuffix: "小班家教分潤" },
+  ];
+  return { course, amount: input.amount, reserveRate: settings.tutoringReserveRate, reserve, teacherShare, distributions };
+}
+
+export interface BookLineInput {
+  bookId: number;
+  qty: number;
+}
+
+/**
+ * 書籍收入：依書目定價 × 數量加總，再套用優惠碼折扣比例（四捨五入到元），得到建議實收金額。
+ * 書籍收入全數留給公積金，不分給任何人。實收金額可由記帳人員改寫（例如現場另外議價）。
+ */
+export async function computeBookIncome(db: any, input: { lines: BookLineInput[]; couponId: number | null }) {
+  const lines = input.lines.filter((l) => l.qty > 0);
+  if (!lines.length) throw new CourseIncomeError("請至少選一本書");
+  const ids = [...new Set(lines.map((l) => l.bookId))];
+  const rows = await db.select().from(books).where(inArray(books.id, ids));
+  const byId = new Map<number, any>(rows.map((b: any) => [b.id, b]));
+
+  const detail = lines.map((l) => {
+    const b = byId.get(l.bookId);
+    if (!b) throw new CourseIncomeError("找不到其中一本書，請重新整理頁面");
+    return { bookId: b.id, name: b.name as string, price: b.price as number, qty: l.qty, subtotal: b.price * l.qty };
+  });
+  const subtotal = detail.reduce((s, d) => s + d.subtotal, 0);
+
+  let coupon: { id: number; code: string; discountRate: number } | null = null;
+  if (input.couponId) {
+    const [c] = await db.select().from(coupons).where(eq(coupons.id, input.couponId)).limit(1);
+    if (!c) throw new CourseIncomeError("找不到這個優惠碼");
+    coupon = { id: c.id, code: c.code, discountRate: c.discountRate };
+  }
+  const discount = coupon ? Math.round(subtotal * coupon.discountRate) : 0;
+  const suggestedAmount = subtotal - discount;
+  const itemName = detail.map((d) => (d.qty > 1 ? `${d.name}×${d.qty}` : d.name)).join("、");
+  return { detail, subtotal, coupon, discount, suggestedAmount, itemName };
 }

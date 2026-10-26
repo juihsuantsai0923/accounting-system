@@ -63,8 +63,39 @@ export const courses = sqliteTable("courses", {
   teacherId: integer("teacher_id"), // 課程主理教師（分潤精靈用來決定 80% 主理分潤歸屬）
   basePrice: integer("base_price"), // （舊欄位，保留相容）早鳥價／基礎售價
   originalPrice: integer("original_price"), // 原價（分潤精靈依「基礎折數＋年期加成」從這裡算出實際入帳金額）
+  // online：線上課程（走課程收入分潤精靈）／tutoring：小班家教（實收金額扣公積金比例後全給主理教師）
+  category: text("category").notNull().default("online"),
   ...timestamps,
 });
+
+// ── Books / 書籍（含筆記本、組合包）：書籍收入全數留給公積金，不分給任何人 ─────────────────────────────
+export const books = sqliteTable(
+  "books",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    kind: text("kind").notNull().default("book"), // book | workbook | bundle | notebook
+    price: integer("price").notNull(),
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => ({ nameIdx: uniqueIndex("books_name_idx").on(t.name) })
+);
+
+// ── Coupons / 優惠碼（書籍收入記帳時選用，依折扣比例算出實收金額） ─────────────────────────────
+export const coupons = sqliteTable(
+  "coupons",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    code: text("code").notNull(),
+    discountRate: real("discount_rate").notNull(), // 0.15 = 折 15%
+    validUntil: text("valid_until"), // YYYY-MM-DD，空白＝不限期
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    ...timestamps,
+  },
+  (t) => ({ codeIdx: uniqueIndex("coupons_code_idx").on(t.code) })
+);
 
 // ── ExpenseTypes / 支出類型 ─────────────────────────────
 export const expenseTypes = sqliteTable(
@@ -101,6 +132,8 @@ export const mainLedger = sqliteTable("main_ledger", {
   balance: integer("balance").notNull(),
   note: text("note"),
   attachmentUrl: text("attachment_url"),
+  // 收入來源：course（線上課程）／tutoring（小班家教）／book（書籍）／other（其他收入）；舊資料與支出為 null
+  incomeSource: text("income_source"),
   editedBy: integer("edited_by"),
   deletedAt: integer("deleted_at"),
   ...timestamps,
@@ -191,6 +224,7 @@ export const revenueSettings = sqliteTable("revenue_settings", {
   materialCost: integer("material_cost").notNull().default(300), // 教材/物流成本（每套課程）
   monthlySubscription: integer("monthly_subscription").notNull().default(350), // 網站訂閱費（每月固定）
   estimatedMonthlySales: integer("estimated_monthly_sales").notNull().default(30), // 預估月銷量，用來分攤月固定成本
+  tutoringReserveRate: real("tutoring_reserve_rate").notNull().default(0.05), // 小班家教留給公積金的比例（0~1）
   updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
 });
 

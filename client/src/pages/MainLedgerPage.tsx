@@ -17,6 +17,30 @@ interface DistRow {
 }
 
 type EntryType = "income" | "expense" | "advance";
+type IncomeMode = "course" | "tutoring" | "book" | "other";
+
+interface BookLine {
+  key: string;
+  bookId: number | "";
+  qty: string;
+}
+
+function newBookLine(): BookLine {
+  return { key: `${Date.now()}-${Math.random()}`, bookId: "", qty: "1" };
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  course: "線上課程",
+  tutoring: "小班家教",
+  book: "書籍",
+  other: "其他收入",
+};
+
+const BOOK_KIND_LABELS: Record<string, string> = { book: "講義", workbook: "刷題本", bundle: "組合包", notebook: "筆記本" };
+
+function isCouponExpired(validUntil: string | null) {
+  return !!validUntil && validUntil < new Date().toISOString().slice(0, 10);
+}
 
 export default function MainLedgerPage() {
   const { user } = useAuth();
@@ -27,6 +51,9 @@ export default function MainLedgerPage() {
   const coursesQuery = trpc.courses.list.useQuery();
   const expenseTypesQuery = trpc.expenseTypes.list.useQuery();
   const incomeTypesQuery = trpc.incomeTypes.list.useQuery();
+  const booksQuery = trpc.books.list.useQuery();
+  const couponsQuery = trpc.coupons.list.useQuery();
+  const settingsQuery = trpc.revenueSettings.get.useQuery();
 
   const invalidateAll = () => {
     utils.mainLedger.list.invalidate();
@@ -39,6 +66,8 @@ export default function MainLedgerPage() {
   const createMutation = trpc.mainLedger.create.useMutation({ onSuccess: invalidateAll });
   const createAdvanceMutation = trpc.advancePayments.create.useMutation({ onSuccess: invalidateAll });
   const createCourseIncomeMutation = trpc.mainLedger.createCourseIncome.useMutation({ onSuccess: invalidateAll });
+  const createTutoringIncomeMutation = trpc.mainLedger.createTutoringIncome.useMutation({ onSuccess: invalidateAll });
+  const createBookIncomeMutation = trpc.mainLedger.createBookIncome.useMutation({ onSuccess: invalidateAll });
   const deleteMutation = trpc.mainLedger.delete.useMutation({ onSuccess: invalidateAll });
   const recalcMutation = trpc.mainLedger.recalculateBalances.useMutation({ onSuccess: invalidateAll });
 
@@ -56,8 +85,20 @@ export default function MainLedgerPage() {
   const [exporting, setExporting] = useState(false);
   const [recalcMsg, setRecalcMsg] = useState<string | null>(null);
 
-  // 收入：課程類別／其他收入
-  const [incomeMode, setIncomeMode] = useState<"course" | "other">("course");
+  // 收入來源：線上課程／小班家教／書籍／其他收入
+  const [incomeMode, setIncomeMode] = useState<IncomeMode>("course");
+
+  // 小班家教
+  const [tutorCourseId, setTutorCourseId] = useState<number | "">("");
+  const [tutorAmount, setTutorAmount] = useState("");
+  const [tutorNote, setTutorNote] = useState("");
+
+  // 書籍（含筆記本）
+  const [bookLines, setBookLines] = useState<BookLine[]>([newBookLine()]);
+  const [bookCouponId, setBookCouponId] = useState<number | "">("");
+  const [bookAmount, setBookAmount] = useState("");
+  const [bookAmountEdited, setBookAmountEdited] = useState(false);
+  const [bookNote, setBookNote] = useState("");
 
   // 課程收入分潤精靈
   const [wizardCourseId, setWizardCourseId] = useState<number | "">("");
@@ -133,6 +174,78 @@ export default function MainLedgerPage() {
       });
       resetWizard();
       setSuccessMsg("課程收入已入帳：母記帳表已記錄全額，各人員子記帳表已同步分配。");
+    } catch (err: any) {
+      setError(err?.message ?? "入帳失敗");
+    }
+  }
+
+  // ── 小班家教：實收金額 × 公積金比例留公司，其餘全給主理教師 ──
+  const tutoringCourses = (coursesQuery.data ?? []).filter((c: any) => c.category === "tutoring");
+  const onlineCourses = (coursesQuery.data ?? []).filter((c: any) => c.category !== "tutoring");
+  const tutoringRate = settingsQuery.data?.settings.tutoringReserveRate ?? 0.05;
+  const tutorCourse: any = tutoringCourses.find((c: any) => c.id === tutorCourseId);
+  const tutorAmountNum = parseInt(tutorAmount || "0", 10) || 0;
+  const tutorReserve = Math.round(tutorAmountNum * tutoringRate);
+  const tutorTeacherShare = tutorAmountNum - tutorReserve;
+
+  async function handleConfirmTutoring() {
+    setError(null);
+    setSuccessMsg(null);
+    if (!tutorCourse) return setError("請選擇小班家教課程");
+    if (!tutorCourse.teacherId) return setError("這門課還沒設定主理教師，請先到管理面板「課程管理」設定");
+    if (tutorAmountNum <= 0) return setError("請填寫實收金額");
+    try {
+      await createTutoringIncomeMutation.mutateAsync({ courseId: tutorCourse.id, amount: tutorAmountNum, note: tutorNote || undefined });
+      setTutorCourseId("");
+      setTutorAmount("");
+      setTutorNote("");
+      setSuccessMsg(`小班家教已入帳：公積金 ${fmt(tutorReserve)}，${nameOf("teacher", tutorCourse.teacherId)} ${fmt(tutorTeacherShare)}。`);
+    } catch (err: any) {
+      setError(err?.message ?? "入帳失敗");
+    }
+  }
+
+  // ── 書籍（含筆記本）：定價 × 數量，套用優惠碼，全數留給公積金 ──
+  const activeBooks = (booksQuery.data ?? []).filter((b: any) => b.isActive);
+  const bookById = new Map((booksQuery.data ?? []).map((b: any) => [b.id, b]));
+  const filledBookLines = bookLines.filter((l) => l.bookId !== "" && (parseInt(l.qty || "0", 10) || 0) > 0);
+  const bookSubtotal = filledBookLines.reduce(
+    (s, l) => s + (bookById.get(Number(l.bookId))?.price ?? 0) * (parseInt(l.qty, 10) || 0),
+    0
+  );
+  const selectedCoupon: any = (couponsQuery.data ?? []).find((c: any) => c.id === bookCouponId);
+  const bookDiscount = selectedCoupon ? Math.round(bookSubtotal * selectedCoupon.discountRate) : 0;
+  const bookSuggested = bookSubtotal - bookDiscount;
+  const bookAmountShown = bookAmountEdited ? bookAmount : bookSuggested ? String(bookSuggested) : "";
+  const usableCoupons = (couponsQuery.data ?? []).filter((c: any) => c.isActive);
+
+  function updateBookLine(key: string, patch: Partial<BookLine>) {
+    setBookLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  }
+
+  function resetBookForm() {
+    setBookLines([newBookLine()]);
+    setBookCouponId("");
+    setBookAmount("");
+    setBookAmountEdited(false);
+    setBookNote("");
+  }
+
+  async function handleConfirmBook() {
+    setError(null);
+    setSuccessMsg(null);
+    if (!filledBookLines.length) return setError("請至少選一本書");
+    const amountToSave = parseInt(bookAmountShown || "0", 10) || 0;
+    if (amountToSave <= 0) return setError("請填寫實收金額");
+    try {
+      await createBookIncomeMutation.mutateAsync({
+        lines: filledBookLines.map((l) => ({ bookId: Number(l.bookId), qty: parseInt(l.qty, 10) })),
+        couponId: bookCouponId === "" ? null : bookCouponId,
+        amount: amountToSave,
+        note: bookNote || undefined,
+      });
+      resetBookForm();
+      setSuccessMsg(`書籍收入已入帳：${fmt(amountToSave)} 全數留給公積金。`);
     } catch (err: any) {
       setError(err?.message ?? "入帳失敗");
     }
@@ -416,12 +529,14 @@ export default function MainLedgerPage() {
                   className="input sm:!w-56"
                   value={incomeMode}
                   onChange={(e) => {
-                    setIncomeMode(e.target.value as "course" | "other");
+                    setIncomeMode(e.target.value as IncomeMode);
                     setError(null);
                     setSuccessMsg(null);
                   }}
                 >
-                  <option value="course">課程類別</option>
+                  <option value="course">線上課程（分潤精靈）</option>
+                  <option value="tutoring">小班家教</option>
+                  <option value="book">書籍（含筆記本）</option>
                   <option value="other">其他收入</option>
                 </select>
               </div>
@@ -436,7 +551,7 @@ export default function MainLedgerPage() {
                 <div>
                   <label className="label">① 選擇課程</label>
                   <SearchableSelect
-                    options={(coursesQuery.data ?? []).map((c: any) => ({ id: c.id, name: c.name }))}
+                    options={onlineCourses.map((c: any) => ({ id: c.id, name: c.name }))}
                     value={wizardCourseId}
                     onChange={(id) => {
                       setWizardCourseId(id);
@@ -602,6 +717,183 @@ export default function MainLedgerPage() {
                 </div>
               )}
               </>
+              ) : incomeMode === "tutoring" ? (
+                <>
+                  <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+                    小班家教：填實際收到的學費。{Math.round(tutoringRate * 1000) / 10}% 留給公積金，其餘全部計入該課程主理教師的子記帳表；不套折數、優惠碼、推廣抽成與團隊獎金。
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="label">課程</label>
+                      <SearchableSelect
+                        options={tutoringCourses.map((c: any) => ({ id: c.id, name: c.name }))}
+                        value={tutorCourseId}
+                        onChange={(id) => setTutorCourseId(id)}
+                        placeholder="搜尋小班家教課程..."
+                      />
+                      {tutoringCourses.length === 0 && (
+                        <p className="text-xs text-amber-600 mt-1">還沒有小班家教課程，請到管理面板「課程管理」新增，類別選「小班家教」。</p>
+                      )}
+                      {tutorCourse && (
+                        <p className="text-xs text-slate-400 mt-1">
+                          {tutorCourse.teacherId ? `主理教師：${nameOf("teacher", tutorCourse.teacherId)}` : "⚠ 尚未設定主理教師"}
+                          {tutorCourse.originalPrice ? ` ・ 定價：${fmt(tutorCourse.originalPrice)}` : ""}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="label">實收金額</label>
+                      <input
+                        className="input"
+                        inputMode="numeric"
+                        placeholder="例如 27000"
+                        value={tutorAmount}
+                        onChange={(e) => setTutorAmount(e.target.value.replace(/[^\d]/g, ""))}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">備註（選填，例如學生姓名）</label>
+                      <input className="input" value={tutorNote} onChange={(e) => setTutorNote(e.target.value)} />
+                    </div>
+                  </div>
+                  {tutorCourse && tutorAmountNum > 0 && (
+                    <div className="border border-slate-200 rounded-lg p-4 text-sm text-slate-700 space-y-1">
+                      <div>母記帳表記錄：<span className="font-medium">{fmt(tutorAmountNum)}</span></div>
+                      <div>
+                        公積金（{Math.round(tutoringRate * 1000) / 10}%）：<span className="font-medium">{fmt(tutorReserve)}</span>
+                      </div>
+                      <div>
+                        {tutorCourse.teacherId ? nameOf("teacher", tutorCourse.teacherId) : "主理教師"}：
+                        <span className="font-medium">{fmt(tutorTeacherShare)}</span>
+                      </div>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={handleConfirmTutoring}
+                    disabled={createTutoringIncomeMutation.isPending}
+                  >
+                    {createTutoringIncomeMutation.isPending ? "入帳中..." : "確認入帳"}
+                  </button>
+                </>
+              ) : incomeMode === "book" ? (
+                <>
+                  <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+                    書籍（含筆記本、組合包）：選書和數量會自動帶出定價，選了優惠碼會自動折扣。實收金額可以改（例如現場議價），書籍收入全數留給公積金，不分給任何人。書目和優惠碼在管理面板「書籍管理」「優惠碼管理」維護。
+                  </div>
+                  <div className="space-y-2">
+                    {bookLines.map((l, i) => {
+                      const b: any = l.bookId === "" ? null : bookById.get(Number(l.bookId));
+                      const qty = parseInt(l.qty || "0", 10) || 0;
+                      return (
+                        <div key={l.key} className="grid grid-cols-12 gap-2 items-center">
+                          <div className="col-span-12 sm:col-span-6">
+                            {i === 0 && <label className="label">書目</label>}
+                            <SearchableSelect
+                              options={activeBooks.map((x: any) => ({
+                                id: x.id,
+                                name: `${x.name}（${BOOK_KIND_LABELS[x.kind] ?? x.kind}・${fmt(x.price)}）`,
+                              }))}
+                              value={l.bookId}
+                              onChange={(id) => updateBookLine(l.key, { bookId: id })}
+                              placeholder="搜尋書名..."
+                            />
+                          </div>
+                          <div className="col-span-4 sm:col-span-2">
+                            {i === 0 && <label className="label">數量</label>}
+                            <input
+                              className="input"
+                              inputMode="numeric"
+                              value={l.qty}
+                              onChange={(e) => updateBookLine(l.key, { qty: e.target.value.replace(/[^\d]/g, "") })}
+                            />
+                          </div>
+                          <div className="col-span-5 sm:col-span-2 text-sm text-slate-600">
+                            {i === 0 && <label className="label">小計</label>}
+                            <div className="py-2">{b ? fmt(b.price * qty) : "-"}</div>
+                          </div>
+                          <div className="col-span-3 sm:col-span-2">
+                            {i === 0 && <label className="label">&nbsp;</label>}
+                            {bookLines.length > 1 && (
+                              <button
+                                type="button"
+                                className="btn-danger"
+                                onClick={() => setBookLines((prev) => prev.filter((x) => x.key !== l.key))}
+                              >
+                                移除
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <button type="button" className="btn-secondary" onClick={() => setBookLines((prev) => [...prev, newBookLine()])}>
+                      + 再加一本
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="label">優惠碼（選填）</label>
+                      <select
+                        className="input"
+                        value={bookCouponId}
+                        onChange={(e) => setBookCouponId(e.target.value ? Number(e.target.value) : "")}
+                      >
+                        <option value="">不使用優惠碼</option>
+                        {usableCoupons.map((c: any) => (
+                          <option key={c.id} value={c.id}>
+                            {c.code}（{Math.round(c.discountRate * 1000) / 10}% off{isCouponExpired(c.validUntil) ? "・已過期" : ""}）
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">實收金額</label>
+                      <input
+                        className="input"
+                        inputMode="numeric"
+                        value={bookAmountShown}
+                        onChange={(e) => {
+                          setBookAmountEdited(true);
+                          setBookAmount(e.target.value.replace(/[^\d]/g, ""));
+                        }}
+                      />
+                      {bookAmountEdited && bookSuggested > 0 && Number(bookAmountShown) !== bookSuggested && (
+                        <button
+                          type="button"
+                          className="text-xs text-brand-600 hover:underline mt-1"
+                          onClick={() => {
+                            setBookAmountEdited(false);
+                            setBookAmount("");
+                          }}
+                        >
+                          改回定價計算的 {fmt(bookSuggested)}
+                        </button>
+                      )}
+                    </div>
+                    <div>
+                      <label className="label">備註（選填，例如買家姓名）</label>
+                      <input className="input" value={bookNote} onChange={(e) => setBookNote(e.target.value)} />
+                    </div>
+                  </div>
+                  {bookSubtotal > 0 && (
+                    <div className="border border-slate-200 rounded-lg p-4 text-sm text-slate-700 space-y-1">
+                      <div>定價小計：{fmt(bookSubtotal)}</div>
+                      {selectedCoupon && (
+                        <div>
+                          優惠碼 {selectedCoupon.code} 折扣：−{fmt(bookDiscount)}
+                        </div>
+                      )}
+                      <div>
+                        母記帳表記錄（全數留給公積金）：<span className="font-medium">{fmt(parseInt(bookAmountShown || "0", 10) || 0)}</span>
+                      </div>
+                    </div>
+                  )}
+                  <button type="button" className="btn-primary" onClick={handleConfirmBook} disabled={createBookIncomeMutation.isPending}>
+                    {createBookIncomeMutation.isPending ? "入帳中..." : "確認入帳"}
+                  </button>
+                </>
               ) : (
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -680,7 +972,7 @@ export default function MainLedgerPage() {
                       })}
                       <div className="text-sm text-slate-600 flex flex-wrap gap-4">
                         <span>已分配：{fmt(totalDistributed)}</span>
-                        <span>剩餘：{fmt(Math.max(amountNum - totalDistributed, 0))}</span>
+                        <span>剩餘（留給公積金）：{fmt(Math.max(amountNum - totalDistributed, 0))}</span>
                         {totalDistributed > amountNum && (
                           <span className="text-red-600 font-medium">超額：{fmt(totalDistributed - amountNum)}</span>
                         )}
@@ -723,11 +1015,11 @@ export default function MainLedgerPage() {
                         }}
                       >
                         <option value="teacher">老師</option>
-                        <option value="salesperson">銷售員</option>
+                        <option value="salesperson">推銷者</option>
                       </select>
                     </div>
                     <div>
-                      <label className="label">{salaryRecipientType === "teacher" ? "老師" : "銷售員"}</label>
+                      <label className="label">{salaryRecipientType === "teacher" ? "老師" : "推銷者"}</label>
                       <SearchableSelect
                         options={((salaryRecipientType === "teacher" ? teachersQuery.data : salespeopleQuery.data) ?? []).map(
                           (p: any) => ({ id: p.id, name: p.name })
@@ -807,9 +1099,10 @@ export default function MainLedgerPage() {
             <tr>
               <th>日期</th>
               <th>項目</th>
-              <th>名稱</th>
+              <th>類別</th>
               <th>類型</th>
               <th>金額</th>
+              <th title="收入沒有分給任何人的部分，留在公司">留給公積金</th>
               <th>餘額</th>
               <th>編輯者</th>
               {canManage(user?.role) && <th>操作</th>}
@@ -819,12 +1112,21 @@ export default function MainLedgerPage() {
             {(entriesQuery.data ?? []).map((entry) => (
               <tr key={entry.id}>
                 <td>{new Date(entry.createdAt).toLocaleDateString()}</td>
-                <td>{entry.itemName}</td>
-                <td>{entry.categoryName}</td>
+                <td>
+                  {entry.itemName}
+                  {entry.note && <div className="text-xs text-slate-400">{entry.note}</div>}
+                </td>
+                <td>
+                  {entry.categoryName}
+                  {entry.incomeSource && entry.categoryName !== SOURCE_LABELS[entry.incomeSource] && (
+                    <div className="text-xs text-slate-400">{SOURCE_LABELS[entry.incomeSource]}</div>
+                  )}
+                </td>
                 <td className={entry.type === "income" ? "text-emerald-600" : "text-red-600"}>
                   {entry.type === "income" ? "收入" : "支出"}
                 </td>
                 <td>{fmt(entry.amount)}</td>
+                <td className="text-slate-500">{entry.type === "income" ? fmt(entry.amount - entry.distributed) : "-"}</td>
                 <td>{fmt(entry.balance)}</td>
                 <td>{entry.editorName ?? "-"}</td>
                 {canManage(user?.role) && (
@@ -838,7 +1140,7 @@ export default function MainLedgerPage() {
             ))}
             {entriesQuery.data?.length === 0 && (
               <tr>
-                <td colSpan={8} className="text-center text-slate-400 py-6">
+                <td colSpan={9} className="text-center text-slate-400 py-6">
                   尚無記錄
                 </td>
               </tr>

@@ -176,6 +176,29 @@ export const createTableStatements: string[] = [
     recipient_id INTEGER NOT NULL,
     created_at INTEGER NOT NULL
   )`,
+
+  `CREATE TABLE IF NOT EXISTS books (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'book',
+    price INTEGER NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS books_name_idx ON books(name)`,
+
+  `CREATE TABLE IF NOT EXISTS coupons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL,
+    discount_rate REAL NOT NULL,
+    valid_until TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS coupons_code_idx ON coupons(code)`,
 ];
 
 /**
@@ -187,8 +210,14 @@ export const courseColumnMigrations: { column: string; statement: string }[] = [
   { column: "teacher_id", statement: `ALTER TABLE courses ADD COLUMN teacher_id INTEGER` },
   { column: "base_price", statement: `ALTER TABLE courses ADD COLUMN base_price INTEGER` },
   { column: "original_price", statement: `ALTER TABLE courses ADD COLUMN original_price INTEGER` },
+  { column: "category", statement: `ALTER TABLE courses ADD COLUMN category TEXT NOT NULL DEFAULT 'online'` },
+];
+
+export const mainLedgerColumnMigrations: { column: string; statement: string }[] = [
+  { column: "income_source", statement: `ALTER TABLE main_ledger ADD COLUMN income_source TEXT` },
 ];
 
 export const revenueSettingsColumnMigrations: { column: string; statement: string }[] = [
   { column: "base_discount", statement: `ALTER TABLE revenue_settings ADD COLUMN base_discount REAL NOT NULL DEFAULT 0.6` },
+  { column: "tutoring_reserve_rate", statement: `ALTER TABLE revenue_settings ADD COLUMN tutoring_reserve_rate REAL NOT NULL DEFAULT 0.05` },
 ];

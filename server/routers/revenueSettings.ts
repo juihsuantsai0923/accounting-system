@@ -26,6 +26,7 @@ export const revenueSettingsRouter = router({
         materialCost: z.number().int().min(0),
         monthlySubscription: z.number().int().min(0),
         estimatedMonthlySales: z.number().int().min(1),
+        tutoringReserveRatePercent: z.number().min(0).max(100).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -40,6 +41,7 @@ export const revenueSettingsRouter = router({
         materialCost: input.materialCost,
         monthlySubscription: input.monthlySubscription,
         estimatedMonthlySales: input.estimatedMonthlySales,
+        ...(input.tutoringReserveRatePercent !== undefined ? { tutoringReserveRate: input.tutoringReserveRatePercent / 100 } : {}),
         updatedAt: Date.now(),
       };
       await db.update(revenueSettings).set(values).where(eq(revenueSettings.id, 1));

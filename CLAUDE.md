@@ -32,7 +32,8 @@ npm.cmd run cf:pages:deploy    # 建置並部署前端（改到 client/ 就要�
 npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X_xxx.sql   # 正式 D1 跑 migration
 ```
 
-- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0003。
+- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0005（0005 是小班家教課程與老師對應，可重複執行）。
+- **部署順序**：有新 migration 時，一定先跑 D1 migration，再 `wrangler deploy`，最後部署前端；Worker 先上線會因為欄位不存在而查詢失敗。
 - 改完要在回覆裡明確告訴使用者：要不要跑 `wrangler deploy`、要不要跑 migration。
 
 ## 角色與權限
@@ -77,7 +78,15 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - 管理面板（`AdminPage.tsx`）分頁：教師、推銷者、課程、支出類型、收入類型、使用者、分潤參數。
 - 使用者管理有啟用／停用與刪除；不能刪除自己目前登入的帳號（前後端都有擋）。
 - 帳號設定頁可以改自己的姓名（`users.changeOwnName`）和密碼。
-- 收入分成「課程類別」（走分潤精靈）與「其他收入」（`income_types`）；支出不支援多方分配。
+- 收入來源有四種（`main_ledger.income_source`，舊資料為 null）：
+  - `course` 線上課程：走分潤精靈（`computeCourseIncome`）。
+  - `tutoring` 小班家教：課程 `category = 'tutoring'`，實收金額 × `tutoring_reserve_rate`（預設 5%）留公積金，其餘全給主理教師（`computeTutoringIncome`）。不套折數、優惠碼、推廣、團隊獎金。
+  - `book` 書籍（含筆記本、組合包，`books` 表）：選書＋數量＋優惠碼（`coupons` 表，折扣比例）算建議金額，實收可改；全數留公積金，不分給任何人（`computeBookIncome`）。
+  - `other` 其他收入（`income_types`），可手動多方分配。
+- 三種精靈入帳都走 `mainLedger.ts` 的 `insertIncome()`，新增收入類型時沿用它，不要再複製一份寫入邏輯。
+- **公積金**＝母記帳表目前餘額 − 所有人子記帳表餘額總和（含代墊、負餘額會加回），在儀表板顯示；母記帳表每筆收入另顯示「留給公積金」＝金額 − 已分配總額。不另外存欄位，舊帳也能直接算。
+- 書目與優惠碼初始資料在 `server/catalogSeed.ts`（2026-10-26 依官網整理），本機啟動時 INSERT OR IGNORE，D1 由 0004 寫入；之後改價在管理面板「書籍管理」「優惠碼管理」操作。
+- 支出不支援多方分配。
 
 ## 工作習慣
 

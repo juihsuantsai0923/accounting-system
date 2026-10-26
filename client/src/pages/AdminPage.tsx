@@ -4,7 +4,9 @@ import { useAuth, ROLE_LABELS } from "../lib/auth";
 import SearchableSelect from "../components/SearchableSelect";
 import { toHalfWidth } from "../lib/textNormalize";
 
-type Tab = "teachers" | "salespeople" | "courses" | "expenseTypes" | "incomeTypes" | "users" | "revenue";
+type Tab = "teachers" | "salespeople" | "courses" | "books" | "coupons" | "expenseTypes" | "incomeTypes" | "users" | "revenue";
+
+const BOOK_KIND_LABELS: Record<string, string> = { book: "講義", workbook: "刷題本", bundle: "組合包", notebook: "筆記本" };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -51,7 +53,7 @@ function TeachersAdmin() {
       >
         <input className="input" placeholder="教師姓名" value={name} onChange={(e) => setName(e.target.value)} />
         <button className="btn-primary" type="submit" disabled={createMutation.isPending}>
-          {createMutation.isPending ? "新增中..." : "新增"}
+          {createMutation.isPending ? "新增中..." : "新增（自動建立薪水支出類型）"}
         </button>
       </form>
       {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
@@ -133,6 +135,7 @@ function CoursesAdmin() {
 
   const [name, setName] = useState("");
   const [type, setType] = useState<"personal" | "collaborative">("personal");
+  const [category, setCategory] = useState<"online" | "tutoring">("online");
   const [teacherId, setTeacherId] = useState<number | "">("");
   const [originalPrice, setOriginalPrice] = useState("");
 
@@ -141,17 +144,18 @@ function CoursesAdmin() {
   return (
     <Section title="課程管理">
       <p className="text-xs text-slate-500">
-        「主理教師」與「原價」是「課程收入分潤精靈」計算分潤時需要的資訊：實際售價 = 原價 ×（基礎折數 + 年期加成），
-        基礎折數與年期加成規則請至「分潤設定」調整。個人課程建議都設定好，才能直接用精靈入帳。
+        課程分兩類：<b>線上課程</b>走「課程收入分潤精靈」，實際售價 = 原價 ×（基礎折數 + 年期加成），需要設定主理教師與原價；
+        <b>小班家教</b>記帳時直接填實收金額，扣掉公積金比例（目前 5%，可在「分潤設定」調整）後全給主理教師，原價只是參考用。
       </p>
       <form
-        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-end"
+        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-2 items-end"
         onSubmit={async (e) => {
           e.preventDefault();
           if (!name.trim()) return;
           await createMutation.mutateAsync({
             name,
             type,
+            category,
             teacherId: teacherId === "" ? null : teacherId,
             originalPrice: originalPrice ? parseInt(originalPrice, 10) : null,
           });
@@ -161,6 +165,10 @@ function CoursesAdmin() {
         }}
       >
         <input className="input" placeholder="課程名稱" value={name} onChange={(e) => setName(e.target.value)} />
+        <select className="input" value={category} onChange={(e) => setCategory(e.target.value as any)}>
+          <option value="online">線上課程</option>
+          <option value="tutoring">小班家教</option>
+        </select>
         <select className="input" value={type} onChange={(e) => setType(e.target.value as any)}>
           <option value="personal">個人課程</option>
           <option value="collaborative">合作課程</option>
@@ -168,7 +176,7 @@ function CoursesAdmin() {
         <SearchableSelect options={teacherOptions} value={teacherId} onChange={(id) => setTeacherId(id)} placeholder="主理教師（選填）" />
         <input
           className="input"
-          placeholder="原價（選填）"
+          placeholder={category === "tutoring" ? "定價（選填，參考用）" : "原價（選填）"}
           inputMode="numeric"
           value={originalPrice}
           onChange={(e) => setOriginalPrice(e.target.value.replace(/[^\d]/g, ""))}
@@ -183,11 +191,28 @@ function CoursesAdmin() {
           return (
             <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
               <span>
-                {c.name} <span className="text-slate-400">（{c.type === "personal" ? "個人" : "合作"}）</span>
+                <span className={`inline-block text-xs rounded px-1.5 py-0.5 mr-1.5 ${c.category === "tutoring" ? "bg-gold-100 text-gold-800" : "bg-brand-50 text-brand-700"}`}>
+                  {c.category === "tutoring" ? "小班家教" : "線上課程"}
+                </span>
+                {c.name}
+                {c.category !== "tutoring" && <span className="text-slate-400"> （{c.type === "personal" ? "個人" : "合作"}）</span>}
                 {teacherName && <span className="text-slate-400"> · 主理：{teacherName}</span>}
-                {c.originalPrice != null && <span className="text-slate-400"> · 原價：NT${c.originalPrice.toLocaleString()}</span>}
+                {c.originalPrice != null && (
+                  <span className="text-slate-400">
+                    {" "}· {c.category === "tutoring" ? "定價" : "原價"}：NT${c.originalPrice.toLocaleString()}
+                  </span>
+                )}
               </span>
               <div className="flex items-center gap-2">
+                <select
+                  className="input !w-28"
+                  value={c.category ?? "online"}
+                  onChange={(e) => updateMutation.mutate({ id: c.id, category: e.target.value as "online" | "tutoring" })}
+                  title="課程類別"
+                >
+                  <option value="online">線上課程</option>
+                  <option value="tutoring">小班家教</option>
+                </select>
                 <SearchableSelect
                   className="!w-40"
                   options={teacherOptions}
@@ -197,7 +222,7 @@ function CoursesAdmin() {
                 />
                 <input
                   className="input !w-32"
-                  placeholder="原價"
+                  placeholder={c.category === "tutoring" ? "定價" : "原價"}
                   inputMode="numeric"
                   defaultValue={c.originalPrice ?? ""}
                   onBlur={(e) => {
@@ -213,6 +238,208 @@ function CoursesAdmin() {
           );
         })}
       </ul>
+    </Section>
+  );
+}
+
+function BooksAdmin() {
+  const utils = trpc.useUtils();
+  const listQuery = trpc.books.list.useQuery();
+  const onSuccess = () => utils.books.list.invalidate();
+  const createMutation = trpc.books.create.useMutation({ onSuccess });
+  const updateMutation = trpc.books.update.useMutation({ onSuccess });
+  const deleteMutation = trpc.books.delete.useMutation({ onSuccess });
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<"book" | "workbook" | "bundle" | "notebook">("book");
+  const [price, setPrice] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <Section title="書籍管理（含筆記本、組合包）">
+      <p className="text-xs text-slate-500">
+        母記帳表收入選「書籍」時會用到這份清單：選書和數量會自動帶出定價。書籍收入全數留給公積金。
+        停售的書可以按「停售」隱藏，不會影響已經入帳的舊記錄。
+      </p>
+      <form
+        className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setError(null);
+          if (!name.trim() || !price) return setError("請填書名和定價");
+          try {
+            await createMutation.mutateAsync({ name: name.trim(), kind, price: parseInt(price, 10) });
+            setName("");
+            setPrice("");
+          } catch (err: any) {
+            setError(err?.message ?? "新增失敗");
+          }
+        }}
+      >
+        <input className="input" placeholder="書名（例如：化學（上））" value={name} onChange={(e) => setName(e.target.value)} />
+        <select className="input" value={kind} onChange={(e) => setKind(e.target.value as any)}>
+          {Object.entries(BOOK_KIND_LABELS).map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
+        <input
+          className="input"
+          placeholder="定價"
+          inputMode="numeric"
+          value={price}
+          onChange={(e) => setPrice(e.target.value.replace(/[^\d]/g, ""))}
+        />
+        <button className="btn-primary" type="submit" disabled={createMutation.isPending}>
+          {createMutation.isPending ? "新增中..." : "新增"}
+        </button>
+      </form>
+      {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>書名</th>
+              <th>種類</th>
+              <th>定價</th>
+              <th>狀態</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {(listQuery.data ?? []).map((b) => (
+              <tr key={b.id} className={b.isActive ? "" : "opacity-50"}>
+                <td>{b.name}</td>
+                <td>
+                  <select
+                    className="input !w-28"
+                    value={b.kind}
+                    onChange={(e) => updateMutation.mutate({ id: b.id, kind: e.target.value as any })}
+                  >
+                    {Object.entries(BOOK_KIND_LABELS).map(([v, l]) => (
+                      <option key={v} value={v}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <input
+                    className="input !w-28"
+                    inputMode="numeric"
+                    defaultValue={b.price}
+                    onBlur={(e) => {
+                      const v = parseInt(e.target.value.replace(/[^\d]/g, "") || "0", 10);
+                      if (v !== b.price) updateMutation.mutate({ id: b.id, price: v });
+                    }}
+                  />
+                </td>
+                <td>{b.isActive ? "販售中" : "已停售"}</td>
+                <td className="whitespace-nowrap space-x-2">
+                  <button className="btn-secondary" onClick={() => updateMutation.mutate({ id: b.id, isActive: !b.isActive })}>
+                    {b.isActive ? "停售" : "恢復販售"}
+                  </button>
+                  <button className="btn-danger" onClick={() => confirm(`確定刪除「${b.name}」？已入帳的記錄不受影響。`) && deleteMutation.mutate({ id: b.id })}>
+                    刪除
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {listQuery.data?.length === 0 && (
+              <tr>
+                <td colSpan={5} className="text-center text-slate-400 py-6">
+                  尚未設定書籍
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
+
+function CouponsAdmin() {
+  const utils = trpc.useUtils();
+  const listQuery = trpc.coupons.list.useQuery();
+  const onSuccess = () => utils.coupons.list.invalidate();
+  const createMutation = trpc.coupons.create.useMutation({ onSuccess });
+  const updateMutation = trpc.coupons.update.useMutation({ onSuccess });
+  const deleteMutation = trpc.coupons.delete.useMutation({ onSuccess });
+  const [code, setCode] = useState("");
+  const [percent, setPercent] = useState("");
+  const [validUntil, setValidUntil] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const today = new Date().toISOString().slice(0, 10);
+
+  return (
+    <Section title="優惠碼管理">
+      <p className="text-xs text-slate-500">
+        跟 Leviax 官網「定價與優惠」的優惠碼對應。記帳收入選「書籍」時可以選優惠碼，系統會依折扣比例算出實收金額。
+        官網新增或停用優惠碼時，這裡也要同步調整。
+      </p>
+      <form
+        className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setError(null);
+          const p = parseFloat(percent);
+          if (!code.trim() || !(p > 0)) return setError("請填優惠碼和折扣 %");
+          try {
+            await createMutation.mutateAsync({ code, discountPercent: p, validUntil: validUntil || null });
+            setCode("");
+            setPercent("");
+            setValidUntil("");
+          } catch (err: any) {
+            setError(err?.message ?? "新增失敗");
+          }
+        }}
+      >
+        <input className="input" placeholder="優惠碼（例如 LEVIAX001）" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
+        <input className="input" placeholder="折扣 %（例如 5）" inputMode="decimal" value={percent} onChange={(e) => setPercent(e.target.value)} />
+        <div>
+          <label className="label">到期日（不填＝不限期）</label>
+          <input className="input" type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
+        </div>
+        <button className="btn-primary" type="submit" disabled={createMutation.isPending}>
+          {createMutation.isPending ? "新增中..." : "新增"}
+        </button>
+      </form>
+      {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>優惠碼</th>
+              <th>折扣</th>
+              <th>到期日</th>
+              <th>狀態</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {(listQuery.data ?? []).map((c) => {
+              const expired = !!c.validUntil && c.validUntil < today;
+              return (
+                <tr key={c.id} className={c.isActive && !expired ? "" : "opacity-50"}>
+                  <td className="font-mono">{c.code}</td>
+                  <td>{Math.round(c.discountRate * 1000) / 10}%</td>
+                  <td>{c.validUntil ?? "不限期"}</td>
+                  <td>{!c.isActive ? "已停用" : expired ? "已過期" : "啟用中"}</td>
+                  <td className="whitespace-nowrap space-x-2">
+                    <button className="btn-secondary" onClick={() => updateMutation.mutate({ id: c.id, isActive: !c.isActive })}>
+                      {c.isActive ? "停用" : "啟用"}
+                    </button>
+                    <button className="btn-danger" onClick={() => confirm(`確定刪除優惠碼 ${c.code}？`) && deleteMutation.mutate({ id: c.id })}>
+                      刪除
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </Section>
   );
 }
@@ -472,6 +699,7 @@ function RevenueSettingsAdmin() {
     materialCost: "300",
     monthlySubscription: "350",
     estimatedMonthlySales: "30",
+    tutoringReserveRatePercent: "5",
   });
   const [newMemberType, setNewMemberType] = useState<"teacher" | "salesperson">("teacher");
   const [newMemberId, setNewMemberId] = useState<number | "">("");
@@ -488,6 +716,7 @@ function RevenueSettingsAdmin() {
       materialCost: String(s.materialCost),
       monthlySubscription: String(s.monthlySubscription),
       estimatedMonthlySales: String(s.estimatedMonthlySales),
+      tutoringReserveRatePercent: String(Math.round((s.tutoringReserveRate ?? 0.05) * 100 * 1000) / 1000),
     });
   }, [settingsQuery.data]);
 
@@ -511,6 +740,7 @@ function RevenueSettingsAdmin() {
       materialCost: parseInt(form.materialCost || "0", 10),
       monthlySubscription: parseInt(form.monthlySubscription || "0", 10),
       estimatedMonthlySales: parseInt(form.estimatedMonthlySales || "1", 10),
+      tutoringReserveRatePercent: parseFloat(form.tutoringReserveRatePercent || "0"),
     });
   }
 
@@ -523,7 +753,7 @@ function RevenueSettingsAdmin() {
 
   return (
     <div className="space-y-6">
-      <Section title="課程分潤參數">
+      <Section title="分潤參數">
         <p className="text-xs text-slate-500">
           對照《課程分潤與成本結構辦法》的可調整參數，改完按「儲存設定」後，之後每一筆用「課程收入分潤精靈」入帳的課程都會用新的數字計算。
         </p>
@@ -601,6 +831,16 @@ function RevenueSettingsAdmin() {
               onChange={(e) => setForm({ ...form, estimatedMonthlySales: e.target.value.replace(/[^\d]/g, "") })}
             />
           </div>
+          <div>
+            <label className="label">小班家教留給公積金的比例（%）</label>
+            <input
+              className="input"
+              inputMode="decimal"
+              value={form.tutoringReserveRatePercent}
+              onChange={(e) => setForm({ ...form, tutoringReserveRatePercent: e.target.value })}
+            />
+            <p className="text-xs text-slate-400 mt-1">小班家教實收金額扣掉這個比例後，全部給主理教師。</p>
+          </div>
           <div className="flex items-end">
             <button className="btn-primary w-full" type="submit" disabled={updateMutation.isPending}>
               {updateMutation.isPending ? "儲存中..." : "儲存設定"}
@@ -660,6 +900,8 @@ export default function AdminPage() {
     { key: "teachers", label: "教師管理" },
     { key: "salespeople", label: "推銷者管理" },
     { key: "courses", label: "課程管理" },
+    { key: "books", label: "書籍管理" },
+    { key: "coupons", label: "優惠碼管理" },
     { key: "expenseTypes", label: "支出類型管理" },
     { key: "incomeTypes", label: "收入類型管理" },
     { key: "revenue", label: "分潤設定" },
@@ -684,6 +926,8 @@ export default function AdminPage() {
       {tab === "teachers" && <TeachersAdmin />}
       {tab === "salespeople" && <SalespeopleAdmin />}
       {tab === "courses" && <CoursesAdmin />}
+      {tab === "books" && <BooksAdmin />}
+      {tab === "coupons" && <CouponsAdmin />}
       {tab === "expenseTypes" && <ExpenseTypesAdmin />}
       {tab === "incomeTypes" && <IncomeTypesAdmin />}
       {tab === "revenue" && <RevenueSettingsAdmin />}

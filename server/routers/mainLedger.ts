@@ -11,9 +11,9 @@ import {
   advancePayments,
   users,
 } from "../schema";
-import { asc, desc, eq, isNull } from "drizzle-orm";
+import { asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { recalculateBalance, recalculateMainLedgerBalance, writeAudit } from "../ledger";
-import { computeCourseIncome, CourseIncomeError } from "../revenueCalc";
+import { computeCourseIncome, computeTutoringIncome, computeBookIncome, CourseIncomeError, type DistItem } from "../revenueCalc";
 
 const referralInput = z
   .object({
@@ -56,6 +56,58 @@ async function resolveCategoryName(db: any, type: "income" | "expense", category
   }
 }
 
+/**
+ * 寫入一筆收入：母記帳表記全額，distributions 逐筆寫進分配表與個人子記帳表，
+ * 沒有分出去的部分就是留給公司的公積金。給線上課程、小班家教、書籍共用。
+ */
+async function insertIncome(
+  db: any,
+  userId: number,
+  entry: { itemName: string; categoryId: number; categoryName: string; amount: number; note?: string; incomeSource: string },
+  distributions: DistItem[],
+  personalItemName: (d: DistItem) => string
+) {
+  const prevBalance = await getLatestBalance(db);
+  const [row] = await db
+    .insert(mainLedger)
+    .values({ type: "income", ...entry, balance: prevBalance + entry.amount, editedBy: userId })
+    .returning();
+
+  const affected: { recipientType: "teacher" | "salesperson"; recipientId: number }[] = [];
+  for (const dist of distributions) {
+    if (dist.amount <= 0) continue;
+    await db.insert(ledgerDistribution).values({
+      mainLedgerId: row.id,
+      distributionType: dist.type,
+      recipientId: dist.recipientId,
+      amount: dist.amount,
+    });
+    const ledgerTable = dist.type === "teacher" ? teacherLedger : salespersonLedger;
+    const recipientColumn = dist.type === "teacher" ? "teacherId" : "salespersonId";
+    await db.insert(ledgerTable).values({
+      [recipientColumn]: dist.recipientId,
+      mainLedgerId: row.id,
+      sourceType: "distribution",
+      type: "income",
+      itemName: personalItemName(dist),
+      categoryId: entry.categoryId,
+      categoryName: entry.categoryName,
+      originalAmount: entry.amount,
+      personalAmount: dist.amount,
+      personalBalance: 0,
+      editedBy: userId,
+    } as any);
+    affected.push({ recipientType: dist.type, recipientId: dist.recipientId });
+  }
+  for (const a of affected) {
+    await recalculateBalance(db, a.recipientType, a.recipientId);
+  }
+  await writeAudit(db, userId, "create", "mainLedger", row.id, null, row);
+  return row;
+}
+
+const bookLinesInput = z.array(z.object({ bookId: z.number(), qty: z.number().int().min(1).max(999) })).min(1);
+
 export const mainLedgerRouter = router({
   /** 教師/推銷者本人帳號無權查看公司整體的母記帳表，只能看自己的子記帳表 */
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -73,6 +125,7 @@ export const mainLedgerRouter = router({
         balance: mainLedger.balance,
         note: mainLedger.note,
         attachmentUrl: mainLedger.attachmentUrl,
+        incomeSource: mainLedger.incomeSource,
         editedBy: mainLedger.editedBy,
         editorName: users.name,
         createdAt: mainLedger.createdAt,
@@ -82,7 +135,13 @@ export const mainLedgerRouter = router({
       .leftJoin(users, eq(mainLedger.editedBy, users.id))
       .where(isNull(mainLedger.deletedAt))
       .orderBy(asc(mainLedger.id));
-    return rows;
+    // 每筆收入分給個人的總額；收入金額扣掉這個數字＝留給公積金的部分
+    const sums: { mainLedgerId: number; total: number }[] = await ctx.db
+      .select({ mainLedgerId: ledgerDistribution.mainLedgerId, total: sql<number>`sum(${ledgerDistribution.amount})` })
+      .from(ledgerDistribution)
+      .groupBy(ledgerDistribution.mainLedgerId);
+    const distributedById = new Map(sums.map((r) => [r.mainLedgerId, Number(r.total) || 0]));
+    return rows.map((r: any) => ({ ...r, distributed: distributedById.get(r.id) ?? 0 }));
   }),
 
   create: staffProcedure
@@ -123,6 +182,7 @@ export const mainLedgerRouter = router({
           balance: newBalance,
           note: input.note,
           attachmentUrl: input.attachmentUrl,
+          incomeSource: input.type === "income" ? "other" : null,
           editedBy: ctx.user.id,
         })
         .returning();
@@ -210,62 +270,96 @@ export const mainLedgerRouter = router({
         mapCourseIncomeError(e);
       }
       const { course, amount, distributions } = result!;
-
-      const prevBalance = await getLatestBalance(db);
-      const newBalance = prevBalance + amount;
-
-      const [entry] = await db
-        .insert(mainLedger)
-        .values({
-          type: "income",
-          itemName: course.name,
-          categoryId: course.id,
-          categoryName: course.name,
-          amount,
-          balance: newBalance,
-          note: input.note,
-          editedBy: ctx.user.id,
-        })
-        .returning();
-
-      const affected: { recipientType: "teacher" | "salesperson"; recipientId: number }[] = [];
-
-      for (const dist of distributions) {
-        if (dist.amount <= 0) continue;
-
-        await db.insert(ledgerDistribution).values({
-          mainLedgerId: entry.id,
-          distributionType: dist.type,
-          recipientId: dist.recipientId,
-          amount: dist.amount,
-        });
-
-        const ledgerTable = dist.type === "teacher" ? teacherLedger : salespersonLedger;
-        const recipientColumn = dist.type === "teacher" ? "teacherId" : "salespersonId";
-
-        await db.insert(ledgerTable).values({
-          [recipientColumn]: dist.recipientId,
-          mainLedgerId: entry.id,
-          sourceType: "distribution",
-          type: "income",
-          itemName: `${course.name}（${dist.itemNameSuffix}）`,
-          categoryId: course.id,
-          categoryName: course.name,
-          originalAmount: amount,
-          personalAmount: dist.amount,
-          personalBalance: 0,
-          editedBy: ctx.user.id,
-        } as any);
-
-        affected.push({ recipientType: dist.type, recipientId: dist.recipientId });
-      }
-
-      for (const a of affected) {
-        await recalculateBalance(db, a.recipientType, a.recipientId);
-      }
-
-      await writeAudit(db, ctx.user.id, "create", "mainLedger", entry.id, null, entry);
+      const entry = await insertIncome(
+        db,
+        ctx.user.id,
+        { itemName: course.name, categoryId: course.id, categoryName: course.name, amount, note: input.note, incomeSource: "course" },
+        distributions,
+        (d) => `${course.name}（${d.itemNameSuffix}）`
+      );
       return { entry, breakdown: result };
+    }),
+
+  /** 小班家教：只計算、不寫入，給前端預覽公積金與教師分潤 */
+  previewTutoringIncome: staffProcedure
+    .input(z.object({ courseId: z.number(), amount: z.number().int() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        return await computeTutoringIncome(ctx.db, input);
+      } catch (e) {
+        mapCourseIncomeError(e);
+      }
+    }),
+
+  /** 小班家教入帳：母記帳表記實收全額，扣掉公積金比例後全部進主理教師子記帳表 */
+  createTutoringIncome: staffProcedure
+    .input(z.object({ courseId: z.number(), amount: z.number().int(), note: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      let result;
+      try {
+        result = await computeTutoringIncome(ctx.db, input);
+      } catch (e) {
+        mapCourseIncomeError(e);
+      }
+      const { course, amount, distributions } = result!;
+      const entry = await insertIncome(
+        ctx.db,
+        ctx.user.id,
+        { itemName: course.name, categoryId: course.id, categoryName: "小班家教", amount, note: input.note, incomeSource: "tutoring" },
+        distributions,
+        (d) => `${course.name}（${d.itemNameSuffix}）`
+      );
+      return { entry, breakdown: result };
+    }),
+
+  /** 書籍：只計算、不寫入，帶出定價小計、優惠碼折扣與建議實收金額 */
+  previewBookIncome: staffProcedure
+    .input(z.object({ lines: bookLinesInput, couponId: z.number().nullable() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        return await computeBookIncome(ctx.db, input);
+      } catch (e) {
+        mapCourseIncomeError(e);
+      }
+    }),
+
+  /** 書籍入帳：全數留給公積金，不分給任何人。amount 是實際收到的錢（可以跟建議金額不同） */
+  createBookIncome: staffProcedure
+    .input(
+      z.object({
+        lines: bookLinesInput,
+        couponId: z.number().nullable(),
+        amount: z.number().int().positive("實收金額必須大於 0"),
+        note: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      let result;
+      try {
+        result = await computeBookIncome(ctx.db, input);
+      } catch (e) {
+        mapCourseIncomeError(e);
+      }
+      const r = result!;
+      const parts: string[] = [];
+      if (r.coupon) parts.push(`優惠碼 ${r.coupon.code}（${Math.round(r.coupon.discountRate * 100)}%）`);
+      if (input.amount !== r.suggestedAmount) parts.push(`定價計算 ${r.suggestedAmount} 元，實收 ${input.amount} 元`);
+      if (input.note) parts.push(input.note);
+      const entry = await insertIncome(
+        ctx.db,
+        ctx.user.id,
+        {
+          itemName: r.itemName,
+          categoryId: r.detail[0].bookId,
+          categoryName: "書籍",
+          amount: input.amount,
+          note: parts.join("；") || undefined,
+          incomeSource: "book",
+        },
+        [],
+        () => ""
+      );
+      return { entry, breakdown: r };
     }),
 
   delete: staffProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
