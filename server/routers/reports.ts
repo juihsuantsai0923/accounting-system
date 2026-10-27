@@ -63,7 +63,39 @@ const TYPE_LABELS: Record<string, string> = {
   advance: "代墊",
 };
 
+/** 股東投入的資金（例如創始基金）不是營業收入，不算進每人營業額 */
+const NON_REVENUE_CATEGORIES = new Set(["創始基金"]);
+
+/** 每人統計：累計分得的收入（營業額分潤）、已領的錢（薪水撥款）、目前公司欠款 */
+async function personStatsFor(db: any, recipientType: "teacher" | "salesperson", list: { id: number; name: string }[]) {
+  const ledgerTable = recipientType === "teacher" ? teacherLedger : salespersonLedger;
+  const recipientColumn = recipientType === "teacher" ? teacherLedger.teacherId : salespersonLedger.salespersonId;
+  const out = [];
+  for (const person of list) {
+    const rows = await db.select().from(ledgerTable).where(eq(recipientColumn as any, person.id)).orderBy(asc(ledgerTable.id));
+    let earned = 0;
+    let paid = 0;
+    for (const r of rows as any[]) {
+      if (r.sourceType === "distribution" && r.type === "income" && !NON_REVENUE_CATEGORIES.has(r.categoryName ?? "")) earned += r.personalAmount;
+      if (r.sourceType === "distribution" && r.type === "expense") paid += r.personalAmount;
+    }
+    const balance = rows.length ? rows[rows.length - 1].personalBalance : 0;
+    out.push({ recipientType, recipientId: person.id, name: person.name, earned, paid, balance });
+  }
+  return out;
+}
+
 export const reportsRouter = router({
+  /** 儀表板圖表用：每人營業額（累計分得收入）與欠薪；教師／推銷者本人帳號不能看全公司資料 */
+  personStats: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role === "teacher_self" || ctx.user.role === "salesperson_self") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "無權查看全公司統計" });
+    }
+    const teacherList = await ctx.db.select({ id: teachers.id, name: teachers.name }).from(teachers);
+    const salespersonList = await ctx.db.select({ id: salespeople.id, name: salespeople.name }).from(salespeople);
+    return [...(await personStatsFor(ctx.db, "teacher", teacherList)), ...(await personStatsFor(ctx.db, "salesperson", salespersonList))];
+  }),
+
   /** 教師/推銷者本人帳號無權查看全公司所有人的應付總覽，只能透過自己的子記帳表頁面看自己的餘額 */
   balanceOverview: protectedProcedure.query(async ({ ctx }) => {
     if (ctx.user.role === "teacher_self" || ctx.user.role === "salesperson_self") {
@@ -84,7 +116,7 @@ export const reportsRouter = router({
   exportMainLedgerCsv: protectedProcedure
     .input(z.object({ dateFrom: z.number().optional(), dateTo: z.number().optional() }).optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role === "teacher_self" || ctx.user.role === "salesperson_self") {
+      if (ctx.user.role === "salesperson_self") {
         throw new TRPCError({ code: "FORBIDDEN", message: "無權匯出母記帳表" });
       }
       const rows = await ctx.db

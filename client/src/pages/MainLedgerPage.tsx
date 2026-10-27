@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "../lib/trpc";
 import { useAuth, canManage } from "../lib/auth";
 import { downloadTextFile } from "../lib/download";
 import SearchableSelect from "../components/SearchableSelect";
 
 function fmt(n: number) {
-  return `NT$${n.toLocaleString()}`;
+  return n < 0 ? `−NT$${Math.abs(n).toLocaleString()}` : `NT$${n.toLocaleString()}`;
 }
 
 interface DistRow {
@@ -38,6 +38,32 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const BOOK_KIND_LABELS: Record<string, string> = { book: "講義", workbook: "刷題本", bundle: "組合包", notebook: "筆記本" };
 
+/**
+ * 這筆記錄讓公積金增減多少：
+ *   收入 → 金額扣掉分給個人的部分（正數）
+ *   薪水撥款 → 0（付的是公司本來就欠的錢，公積金不變）
+ *   其他公帳支出 → 負數
+ */
+export function reserveDelta(e: { type: string; amount: number; distributed: number }) {
+  return e.type === "income" ? e.amount - e.distributed : -(e.amount - e.distributed);
+}
+
+function isSalaryEntry(e: { salaryTeacherId: number | null; salarySalespersonId: number | null }) {
+  return e.salaryTeacherId != null || e.salarySalespersonId != null;
+}
+
+function monthOf(ts: number) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function signedFmt(n: number) {
+  if (n === 0) return "NT$0";
+  return `${n > 0 ? "+" : "−"}NT$${Math.abs(n).toLocaleString()}`;
+}
+
+const SORT_KEY = "mainLedger.sortNewestFirst";
+
 function isCouponExpired(validUntil: string | null) {
   return !!validUntil && validUntil < new Date().toISOString().slice(0, 10);
 }
@@ -54,6 +80,8 @@ export default function MainLedgerPage() {
   const booksQuery = trpc.books.list.useQuery();
   const couponsQuery = trpc.coupons.list.useQuery();
   const settingsQuery = trpc.revenueSettings.get.useQuery();
+  // 應付總覽只給財務人員（教師本人沒有權限，也用不到：他看不到新增記錄的表單）
+  const overviewQuery = trpc.reports.balanceOverview.useQuery(undefined, { enabled: canManage(user?.role) });
 
   const invalidateAll = () => {
     utils.mainLedger.list.invalidate();
@@ -61,6 +89,7 @@ export default function MainLedgerPage() {
     utils.salespersonLedger.invalidate();
     utils.advancePayments.invalidate();
     utils.reports.balanceOverview.invalidate();
+    utils.reports.personStats.invalidate();
   };
 
   const createMutation = trpc.mainLedger.create.useMutation({ onSuccess: invalidateAll });
@@ -84,6 +113,26 @@ export default function MainLedgerPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [recalcMsg, setRecalcMsg] = useState<string | null>(null);
+
+  // 列表：排序與篩選（排序方向記在這台電腦的瀏覽器）
+  const [newestFirst, setNewestFirst] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SORT_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(SORT_KEY, newestFirst ? "1" : "0");
+    } catch {
+      /* 無痕模式等情況存不了，不影響使用 */
+    }
+  }, [newestFirst]);
+  const [filterType, setFilterType] = useState<"all" | "income" | "expense">("all");
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterMonth, setFilterMonth] = useState("");
+  const [filterText, setFilterText] = useState("");
 
   // 收入來源：線上課程／小班家教／書籍／其他收入
   const [incomeMode, setIncomeMode] = useState<IncomeMode>("course");
@@ -406,13 +455,42 @@ export default function MainLedgerPage() {
         categoryId: Number(effectiveCategoryId),
         amount,
         note: note || undefined,
-        distributions: [],
+        // 薪水：同一筆金額記進該人員子記帳表的支出，公司欠他的錢跟著減少；其他公帳支出不分配
+        distributions:
+          expenseKind === "salary" ? [{ type: salaryRecipientType, recipientId: Number(salaryRecipientId), amount }] : [],
       });
       resetForm();
     } catch (err: any) {
       setError(err?.message ?? "新增失敗");
     }
   }
+
+  const allEntries = entriesQuery.data ?? [];
+  const categoryOptions = useMemo(
+    () => [...new Set(allEntries.map((e) => e.categoryName))].sort((a, b) => a.localeCompare(b, "zh-Hant")),
+    [allEntries]
+  );
+  const monthOptions = useMemo(() => [...new Set(allEntries.map((e) => monthOf(e.createdAt)))].sort().reverse(), [allEntries]);
+  const isFiltering = filterType !== "all" || !!filterCategory || !!filterMonth || !!filterText.trim();
+  const visibleEntries = useMemo(() => {
+    const q = filterText.trim().toLowerCase();
+    const rows = allEntries.filter(
+      (e) =>
+        (filterType === "all" || e.type === filterType) &&
+        (!filterCategory || e.categoryName === filterCategory) &&
+        (!filterMonth || monthOf(e.createdAt) === filterMonth) &&
+        (!q || `${e.itemName} ${e.categoryName} ${e.note ?? ""}`.toLowerCase().includes(q))
+    );
+    return newestFirst ? [...rows].reverse() : rows;
+  }, [allEntries, filterType, filterCategory, filterMonth, filterText, newestFirst]);
+  const visibleTotals = visibleEntries.reduce(
+    (t, e) => ({
+      income: t.income + (e.type === "income" ? e.amount : 0),
+      expense: t.expense + (e.type === "expense" ? e.amount : 0),
+      reserve: t.reserve + reserveDelta(e),
+    }),
+    { income: 0, expense: 0, reserve: 0 }
+  );
 
   async function handleDelete(id: number) {
     if (!confirm("確定要刪除這筆記錄嗎？相關分配與子記帳表記錄將一併移除，並重新計算餘額。")) return;
@@ -1028,6 +1106,27 @@ export default function MainLedgerPage() {
                         onChange={(id) => setSalaryRecipientId(id)}
                         placeholder="搜尋姓名..."
                       />
+                      {salaryRecipientId !== "" &&
+                        (() => {
+                          const row = (overviewQuery.data ?? []).find(
+                            (r) => r.recipientType === salaryRecipientType && r.recipientId === salaryRecipientId
+                          );
+                          if (!row) return null;
+                          return (
+                            <p className="text-xs text-slate-500 mt-1">
+                              目前公司欠他 {fmt(row.totalBalance)}
+                              {row.totalBalance > 0 && (
+                                <button
+                                  type="button"
+                                  className="text-brand-600 hover:underline ml-2"
+                                  onClick={() => setAmount(String(row.totalBalance))}
+                                >
+                                  全部付清
+                                </button>
+                              )}
+                            </p>
+                          );
+                        })()}
                     </div>
                   </>
                 ) : (
@@ -1092,7 +1191,76 @@ export default function MainLedgerPage() {
         </form>
       )}
 
-      <div className="card">
+      <div className="card space-y-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <label className="label">排序</label>
+            <button type="button" className="btn-secondary" onClick={() => setNewestFirst((v) => !v)}>
+              {newestFirst ? "新 → 舊" : "舊 → 新"} ⇅
+            </button>
+          </div>
+          <div>
+            <label className="label">類型</label>
+            <select className="input !w-28" value={filterType} onChange={(e) => setFilterType(e.target.value as any)}>
+              <option value="all">全部</option>
+              <option value="income">收入</option>
+              <option value="expense">支出</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">類別</label>
+            <select className="input !w-44" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+              <option value="">全部類別</option>
+              {categoryOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">月份</label>
+            <select className="input !w-32" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)}>
+              <option value="">全部月份</option>
+              {monthOptions.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex-1 min-w-[10rem]">
+            <label className="label">搜尋</label>
+            <input
+              className="input"
+              placeholder="項目、類別或備註..."
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+            />
+          </div>
+          {isFiltering && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setFilterType("all");
+                setFilterCategory("");
+                setFilterMonth("");
+                setFilterText("");
+              }}
+            >
+              清除篩選
+            </button>
+          )}
+        </div>
+        <div className="text-sm text-slate-600 flex flex-wrap gap-x-5 gap-y-1">
+          <span>
+            {isFiltering ? "符合" : "共"} {visibleEntries.length} 筆
+          </span>
+          <span className="text-emerald-600">收入 {fmt(visibleTotals.income)}</span>
+          <span className="text-red-600">支出 {fmt(visibleTotals.expense)}</span>
+          <span>公積金增減 {signedFmt(visibleTotals.reserve)}</span>
+        </div>
         <div className="table-wrap">
         <table className="data-table">
           <thead>
@@ -1102,46 +1270,52 @@ export default function MainLedgerPage() {
               <th>類別</th>
               <th>類型</th>
               <th>金額</th>
-              <th title="收入沒有分給任何人的部分，留在公司">留給公積金</th>
-              <th>餘額</th>
+              <th title="收入：沒分給任何人、留在公司的部分；公帳支出：從公積金扣掉（負數）；薪水撥款不影響公積金">公積金增減</th>
+              <th title="母記帳表的累計餘額，依記錄先後計算，不受排序和篩選影響">餘額</th>
               <th>編輯者</th>
               {canManage(user?.role) && <th>操作</th>}
             </tr>
           </thead>
           <tbody>
-            {(entriesQuery.data ?? []).map((entry) => (
-              <tr key={entry.id}>
-                <td>{new Date(entry.createdAt).toLocaleDateString()}</td>
-                <td>
-                  {entry.itemName}
-                  {entry.note && <div className="text-xs text-slate-400">{entry.note}</div>}
-                </td>
-                <td>
-                  {entry.categoryName}
-                  {entry.incomeSource && entry.categoryName !== SOURCE_LABELS[entry.incomeSource] && (
-                    <div className="text-xs text-slate-400">{SOURCE_LABELS[entry.incomeSource]}</div>
-                  )}
-                </td>
-                <td className={entry.type === "income" ? "text-emerald-600" : "text-red-600"}>
-                  {entry.type === "income" ? "收入" : "支出"}
-                </td>
-                <td>{fmt(entry.amount)}</td>
-                <td className="text-slate-500">{entry.type === "income" ? fmt(entry.amount - entry.distributed) : "-"}</td>
-                <td>{fmt(entry.balance)}</td>
-                <td>{entry.editorName ?? "-"}</td>
-                {canManage(user?.role) && (
+            {visibleEntries.map((entry) => {
+              const delta = reserveDelta(entry);
+              return (
+                <tr key={entry.id}>
+                  <td className="whitespace-nowrap">{new Date(entry.createdAt).toLocaleDateString()}</td>
                   <td>
-                    <button className="btn-danger" onClick={() => handleDelete(entry.id)}>
-                      刪除
-                    </button>
+                    {entry.itemName}
+                    {entry.note && <div className="text-xs text-slate-400">{entry.note}</div>}
                   </td>
-                )}
-              </tr>
-            ))}
-            {entriesQuery.data?.length === 0 && (
+                  <td>
+                    {entry.categoryName}
+                    {entry.incomeSource && entry.categoryName !== SOURCE_LABELS[entry.incomeSource] && (
+                      <div className="text-xs text-slate-400">{SOURCE_LABELS[entry.incomeSource]}</div>
+                    )}
+                    {isSalaryEntry(entry) && <div className="text-xs text-slate-400">薪水撥款</div>}
+                  </td>
+                  <td className={entry.type === "income" ? "text-emerald-600" : "text-red-600"}>
+                    {entry.type === "income" ? "收入" : "支出"}
+                  </td>
+                  <td>{fmt(entry.amount)}</td>
+                  <td className={delta < 0 ? "text-red-600" : delta > 0 ? "text-slate-600" : "text-slate-400"}>
+                    {isSalaryEntry(entry) && delta === 0 ? "不影響" : signedFmt(delta)}
+                  </td>
+                  <td>{fmt(entry.balance)}</td>
+                  <td>{entry.editorName ?? "-"}</td>
+                  {canManage(user?.role) && (
+                    <td>
+                      <button className="btn-danger" onClick={() => handleDelete(entry.id)}>
+                        刪除
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+            {visibleEntries.length === 0 && (
               <tr>
                 <td colSpan={9} className="text-center text-slate-400 py-6">
-                  尚無記錄
+                  {isFiltering ? "沒有符合篩選條件的記錄" : "尚無記錄"}
                 </td>
               </tr>
             )}

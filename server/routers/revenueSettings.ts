@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, publicProcedure, adminProcedure } from "../trpc";
+import { router, protectedProcedure, adminProcedure } from "../trpc";
 import { revenueTeamMembers, revenueSettings } from "../schema";
 import { and, eq } from "drizzle-orm";
 import { getRevenueSettings } from "../revenueCalc";
@@ -9,7 +9,7 @@ import { writeAudit } from "../ledger";
 const recipientTypeSchema = z.enum(["teacher", "salesperson"]);
 
 export const revenueSettingsRouter = router({
-  get: publicProcedure.query(async ({ ctx }) => {
+  get: protectedProcedure.query(async ({ ctx }) => {
     const settings = await getRevenueSettings(ctx.db);
     const members = await ctx.db.select().from(revenueTeamMembers).orderBy(revenueTeamMembers.id);
     return { settings, members };

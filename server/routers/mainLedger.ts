@@ -11,7 +11,7 @@ import {
   advancePayments,
   users,
 } from "../schema";
-import { asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { recalculateBalance, recalculateMainLedgerBalance, writeAudit } from "../ledger";
 import { computeCourseIncome, computeTutoringIncome, computeBookIncome, CourseIncomeError, type DistItem } from "../revenueCalc";
 
@@ -109,9 +109,9 @@ async function insertIncome(
 const bookLinesInput = z.array(z.object({ bookId: z.number(), qty: z.number().int().min(1).max(999) })).min(1);
 
 export const mainLedgerRouter = router({
-  /** 教師/推銷者本人帳號無權查看公司整體的母記帳表，只能看自己的子記帳表 */
+  /** 教師本人可以看母記帳表（唯讀，編輯都走 staffProcedure）；推銷者本人只能看自己的子記帳表 */
   list: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.user.role === "teacher_self" || ctx.user.role === "salesperson_self") {
+    if (ctx.user.role === "salesperson_self") {
       throw new TRPCError({ code: "FORBIDDEN", message: "無權查看母記帳表" });
     }
     const rows = await ctx.db
@@ -126,6 +126,8 @@ export const mainLedgerRouter = router({
         note: mainLedger.note,
         attachmentUrl: mainLedger.attachmentUrl,
         incomeSource: mainLedger.incomeSource,
+        salaryTeacherId: expenseTypes.teacherId,
+        salarySalespersonId: expenseTypes.salespersonId,
         editedBy: mainLedger.editedBy,
         editorName: users.name,
         createdAt: mainLedger.createdAt,
@@ -133,6 +135,7 @@ export const mainLedgerRouter = router({
       })
       .from(mainLedger)
       .leftJoin(users, eq(mainLedger.editedBy, users.id))
+      .leftJoin(expenseTypes, and(eq(mainLedger.type, "expense"), eq(expenseTypes.id, mainLedger.categoryId)))
       .where(isNull(mainLedger.deletedAt))
       .orderBy(asc(mainLedger.id));
     // 每筆收入分給個人的總額；收入金額扣掉這個數字＝留給公積金的部分

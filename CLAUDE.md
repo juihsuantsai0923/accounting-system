@@ -45,15 +45,16 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 | `super_admin` | 全部權限（`adminProcedure`） |
 | `finance_staff` | 可新增／刪除帳務（`staffProcedure`） |
 | `viewer` | 唯讀，看得到全部，沒有編輯按鈕（前端用 `canManage()` 判斷） |
-| `teacher_self` | **只能看自己的子記帳表** |
+| `teacher_self` | 看自己的子記帳表＋**母記帳表（唯讀）**，看不到儀表板、應付總覽、每人統計 |
 | `salesperson_self` | **只能看自己的子記帳表** |
 
-**重要（使用者明確要求）：** `teacher_self` 和 `salesperson_self` 不能看到母記帳表、儀表板、全公司應付總覽。
-
-- 後端：`mainLedger.list`、`reports.balanceOverview`、`reports.exportMainLedgerCsv` 遇到這兩個角色都會回 FORBIDDEN。
-- 前端：`Dashboard.tsx` 會把這兩個角色導向自己的 `/teacher/:id` 或 `/salesperson/:id`，`Layout.tsx` 也隱藏儀表板和母記帳表分頁。
+**重要（使用者明確要求）：**
+- **所有資料都要登入才能看**（2026-10-27）：只有 `auth.me`、`auth.login` 是 `publicProcedure`，其他查詢一律 `protectedProcedure` 以上。新增 API 不要用 `publicProcedure`。
+- `teacher_self` **可以看母記帳表但不能編輯**（2026-10-27 使用者要求，取代舊規則）：`mainLedger.list`、`reports.exportMainLedgerCsv` 只擋 `salesperson_self`；新增／刪除都是 `staffProcedure`。前端表單與刪除鈕用 `canManage()` 隱藏。
+- `teacher_self`、`salesperson_self` 都不能看儀表板、全公司應付總覽、每人統計：`reports.balanceOverview`、`reports.personStats` 遇到這兩個角色回 FORBIDDEN；`salesperson_self` 仍看不到母記帳表。
+- 前端：`Dashboard.tsx` 會把這兩個角色導向自己的 `/teacher/:id` 或 `/salesperson/:id`；`Layout.tsx` 對兩者隱藏儀表板，只對推銷者本人隱藏母記帳表。母記帳表頁的應付總覽查詢只在 `canManage()` 時才發出。
 - 新增任何會回傳全公司資料的 API 時，記得一起擋這兩個角色。前端隱藏分頁不等於有權限保護。
-- 不要用 `publicProcedure` 回傳帳務資料（之前 `mainLedger.list` 就是因為這樣漏掉權限）。
+- 不要用 `publicProcedure` 回傳任何資料（之前 `mainLedger.list`、教師名單、分潤參數都因此漏給未登入的人）。
 
 ## 已修過的 bug（不要再犯）
 
@@ -86,7 +87,9 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - 三種精靈入帳都走 `mainLedger.ts` 的 `insertIncome()`，新增收入類型時沿用它，不要再複製一份寫入邏輯。
 - **公積金**＝母記帳表目前餘額 − 所有人子記帳表餘額總和（含代墊、負餘額會加回），在儀表板顯示；母記帳表每筆收入另顯示「留給公積金」＝金額 − 已分配總額。不另外存欄位，舊帳也能直接算。
 - 書目與優惠碼初始資料在 `server/catalogSeed.ts`（2026-10-26 依官網整理），本機啟動時 INSERT OR IGNORE，D1 由 0004 寫入；之後改價在管理面板「書籍管理」「優惠碼管理」操作。
-- 支出不支援多方分配。
+- 支出不支援多方分配。**薪水撥款例外**：前端會把同一筆金額當成 distribution 一起送（type expense），寫進該人員子記帳表，公司欠款跟著減少、公積金不變（2026-10-27 修正，之前薪水不會扣子帳）。
+- 母記帳表「公積金增減」＝收入：金額 − 已分配；支出：−（金額 − 已分配）。所以公帳支出是負數、薪水撥款是 0。
+- 儀表板圖表（`client/src/components/DashboardCharts.tsx`，recharts）：月營業額（依收入來源堆疊，舊記錄用類別名稱推回來源）、每人營業額（`reports.personStats` 的 earned）、每人欠薪（balance）。「創始基金」視為股東投入，不算營業額。配色照 dataviz 規範驗證過，黃／綠對比不足所以附「顯示表格」。
 
 ## 工作習慣
 

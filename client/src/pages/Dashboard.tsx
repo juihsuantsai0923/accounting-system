@@ -2,9 +2,10 @@ import { trpc } from "../lib/trpc";
 import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { downloadTextFile } from "../lib/download";
+import { MonthlyRevenueChart, PersonOwedChart, PersonRevenueChart } from "../components/DashboardCharts";
 
 function fmt(n: number) {
-  return `NT$${n.toLocaleString()}`;
+  return n < 0 ? `−NT$${Math.abs(n).toLocaleString()}` : `NT$${n.toLocaleString()}`;
 }
 
 function toCsvClient(headers: string[], rows: (string | number)[][]) {
@@ -23,6 +24,9 @@ export default function Dashboard() {
   const isSelfRole = user?.role === "teacher_self" || user?.role === "salesperson_self";
   const overviewQuery = trpc.reports.balanceOverview.useQuery(undefined, { enabled: !isSelfRole });
   const mainLedgerQuery = trpc.mainLedger.list.useQuery(undefined, { enabled: !isSelfRole });
+  const personStatsQuery = trpc.reports.personStats.useQuery(undefined, { enabled: !isSelfRole });
+  const coursesQuery = trpc.courses.list.useQuery(undefined, { enabled: !isSelfRole });
+  const courseNames = new Set((coursesQuery.data ?? []).map((c) => c.name));
 
   const totalIncome = (mainLedgerQuery.data ?? []).filter((e) => e.type === "income").reduce((s, e) => s + e.amount, 0);
   const totalExpense = (mainLedgerQuery.data ?? []).filter((e) => e.type === "expense").reduce((s, e) => s + e.amount, 0);
@@ -92,6 +96,13 @@ export default function Dashboard() {
           <div className="text-sm text-slate-500">未核銷代墊總額</div>
           <div className="text-2xl font-semibold mt-1 text-amber-600">{fmt(totalUnsettledAdvance)}</div>
         </div>
+      </div>
+
+      <MonthlyRevenueChart entries={mainLedgerQuery.data ?? []} courseNames={courseNames} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <PersonRevenueChart stats={personStatsQuery.data ?? []} />
+        <PersonOwedChart stats={personStatsQuery.data ?? []} />
       </div>
 
       <div className="card">

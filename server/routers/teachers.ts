@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, publicProcedure, staffProcedure } from "../trpc";
+import { router, protectedProcedure, staffProcedure } from "../trpc";
 import { teachers, expenseTypes } from "../schema";
 import { eq } from "drizzle-orm";
 import { writeAudit } from "../ledger";
 import { upsertSalaryExpenseType } from "../expenseTypeHelpers";
 
 export const teachersRouter = router({
-  list: publicProcedure.query(async ({ ctx }) => {
+  list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.select().from(teachers).orderBy(teachers.id);
   }),
 

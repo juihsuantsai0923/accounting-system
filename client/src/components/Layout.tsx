@@ -46,7 +46,7 @@ export default function Layout() {
           儀表板
         </TabLink>
       )}
-      {!isTeacherSelf && !isSalespersonSelf && (
+      {!isSalespersonSelf && (
         <TabLink to="/ledger" onClick={closeMenu}>
           母記帳表
         </TabLink>

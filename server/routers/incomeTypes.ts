@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, publicProcedure, staffProcedure } from "../trpc";
+import { router, protectedProcedure, staffProcedure } from "../trpc";
 import { incomeTypes } from "../schema";
 import { eq } from "drizzle-orm";
 import { writeAudit } from "../ledger";
@@ -10,7 +10,7 @@ import { writeAudit } from "../ledger";
  * 這裡管理的是課程以外的其他收入項目（例如：贊助、場地租借、周邊商品銷售…）。
  */
 export const incomeTypesRouter = router({
-  list: publicProcedure.query(async ({ ctx }) => {
+  list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.select().from(incomeTypes).orderBy(incomeTypes.id);
   }),
 
