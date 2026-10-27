@@ -2,7 +2,19 @@ import { trpc } from "../lib/trpc";
 import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { downloadTextFile } from "../lib/download";
+import { useState } from "react";
 import { MonthlyRevenueChart, PersonOwedChart, PersonRevenueChart } from "../components/DashboardCharts";
+import {
+  AlertsCard,
+  ExpenseCategoryChart,
+  KpiCompare,
+  MonthlyReportButton,
+  PERIOD_LABELS,
+  PrepaidTutoringCard,
+  ReserveTrendChart,
+  RevenueRankingChart,
+  type Period,
+} from "../components/DashboardAnalytics";
 
 function fmt(n: number) {
   return n < 0 ? `−NT$${Math.abs(n).toLocaleString()}` : `NT$${n.toLocaleString()}`;
@@ -27,6 +39,16 @@ export default function Dashboard() {
   const personStatsQuery = trpc.reports.personStats.useQuery(undefined, { enabled: !isSelfRole });
   const coursesQuery = trpc.courses.list.useQuery(undefined, { enabled: !isSelfRole });
   const courseNames = new Set((coursesQuery.data ?? []).map((c) => c.name));
+  const timelineQuery = trpc.reports.timeline.useQuery(undefined, { enabled: !isSelfRole });
+  const booksQuery = trpc.books.list.useQuery(undefined, { enabled: !isSelfRole });
+  const couponsQuery = trpc.coupons.list.useQuery(undefined, { enabled: !isSelfRole });
+  const advancesQuery = trpc.advancePayments.list.useQuery({ status: "unsettled" }, { enabled: !isSelfRole });
+  const bookPrices = new Map((booksQuery.data ?? []).map((b) => [b.name, b.price]));
+  const [period, setPeriod] = useState<Period>("all");
+  const entries = mainLedgerQuery.data ?? [];
+  const timeline = timelineQuery.data ?? [];
+  const stats = personStatsQuery.data ?? [];
+  const loanTotal = stats.reduce((s, p) => s + p.loan, 0);
 
   const totalIncome = (mainLedgerQuery.data ?? []).filter((e) => e.type === "income").reduce((s, e) => s + e.amount, 0);
   const totalExpense = (mainLedgerQuery.data ?? []).filter((e) => e.type === "expense").reduce((s, e) => s + e.amount, 0);
@@ -69,15 +91,24 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-slate-800">儀表板總覽</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold text-slate-800">儀表板總覽</h1>
+        <MonthlyReportButton entries={entries} timeline={timeline} stats={stats} courseNames={courseNames} />
+      </div>
 
       <div className="card border-l-4 border-gold-500">
         <div className="text-sm text-slate-500">公積金（公司自己的錢）</div>
         <div className={`text-3xl font-semibold mt-1 ${reserveFund < 0 ? "text-red-600" : "text-brand-700"}`}>{fmt(reserveFund)}</div>
         <div className="text-xs text-slate-400 mt-2">
-          ＝ 母記帳表目前餘額 {fmt(currentBalance)} − 還欠所有人的錢 {fmt(netOwed)}。書籍收入、小班家教扣下的公積金、線上課程沒分出去的部分都會累積在這裡。
+          ＝ 母記帳表目前餘額 {fmt(currentBalance)} − 還欠所有人的錢 {fmt(netOwed)}
+          {loanTotal > 0 && `（其中創始基金借款 ${fmt(loanTotal)}，要還給出資人）`}。
+          也就是「如果今天把欠所有人的錢全部付清，帳上會剩 {fmt(reserveFund)}」。書籍收入、小班家教扣下的公積金、線上課程沒分出去的部分都會累積在這裡。
         </div>
       </div>
+
+      <AlertsCard advances={advancesQuery.data ?? []} coupons={couponsQuery.data ?? []} stats={stats} />
+
+      <KpiCompare entries={entries} timeline={timeline} />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="card">
@@ -98,12 +129,33 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <MonthlyRevenueChart entries={mainLedgerQuery.data ?? []} courseNames={courseNames} />
+      <MonthlyRevenueChart entries={entries} courseNames={courseNames} />
+
+      <ReserveTrendChart timeline={timeline} />
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-500">排行與支出的期間</span>
+          <select className="input !w-32" value={period} onChange={(e) => setPeriod(e.target.value as Period)}>
+            {Object.entries(PERIOD_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <RevenueRankingChart entries={entries} bookPrices={bookPrices} courseNames={courseNames} period={period} />
+          <ExpenseCategoryChart entries={entries} period={period} />
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <PersonRevenueChart stats={personStatsQuery.data ?? []} />
-        <PersonOwedChart stats={personStatsQuery.data ?? []} />
+        <PersonRevenueChart stats={stats} />
+        <PersonOwedChart stats={stats} />
       </div>
+
+      <PrepaidTutoringCard entries={entries} courses={coursesQuery.data ?? []} />
 
       <div className="card">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">

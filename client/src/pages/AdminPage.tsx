@@ -204,6 +204,23 @@ function CoursesAdmin() {
                 )}
               </span>
               <div className="flex items-center gap-2">
+                {c.category === "tutoring" && (
+                  <span className="flex items-center gap-1 text-xs text-slate-500" title="上課期間：用來估算「已收但還沒上的課」">
+                    <input
+                      type="date"
+                      className="input !w-36"
+                      defaultValue={c.startDate ?? ""}
+                      onChange={(e) => updateMutation.mutate({ id: c.id, startDate: e.target.value || null })}
+                    />
+                    ～
+                    <input
+                      type="date"
+                      className="input !w-36"
+                      defaultValue={c.endDate ?? ""}
+                      onChange={(e) => updateMutation.mutate({ id: c.id, endDate: e.target.value || null })}
+                    />
+                  </span>
+                )}
                 <select
                   className="input !w-28"
                   value={c.category ?? "online"}

@@ -65,6 +65,9 @@ export const courses = sqliteTable("courses", {
   originalPrice: integer("original_price"), // 原價（分潤精靈依「基礎折數＋年期加成」從這裡算出實際入帳金額）
   // online：線上課程（走課程收入分潤精靈）／tutoring：小班家教（實收金額扣公積金比例後全給主理教師）
   category: text("category").notNull().default("online"),
+  // 小班家教上課期間（YYYY-MM-DD），用來估算「已收但還沒上的課」
+  startDate: text("start_date"),
+  endDate: text("end_date"),
   ...timestamps,
 });
 

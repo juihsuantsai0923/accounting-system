@@ -32,7 +32,7 @@ npm.cmd run cf:pages:deploy    # 建置並部署前端（改到 client/ 就要�
 npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X_xxx.sql   # 正式 D1 跑 migration
 ```
 
-- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0005（0005 是小班家教課程與老師對應，可重複執行）。
+- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0006（0005 是小班家教課程與老師對應，可重複執行；0006 加課程上課期間、把舊行事曆收入標成書籍，ALTER 只能跑一次）。
 - **部署順序**：有新 migration 時，一定先跑 D1 migration，再 `wrangler deploy`，最後部署前端；Worker 先上線會因為欄位不存在而查詢失敗。
 - 改完要在回覆裡明確告訴使用者：要不要跑 `wrangler deploy`、要不要跑 migration。
 
@@ -89,6 +89,8 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - 書目與優惠碼初始資料在 `server/catalogSeed.ts`（2026-10-26 依官網整理），本機啟動時 INSERT OR IGNORE，D1 由 0004 寫入；之後改價在管理面板「書籍管理」「優惠碼管理」操作。
 - 支出不支援多方分配。**薪水撥款例外**：前端會把同一筆金額當成 distribution 一起送（type expense），寫進該人員子記帳表，公司欠款跟著減少、公積金不變（2026-10-27 修正，之前薪水不會扣子帳）。
 - 母記帳表「公積金增減」＝收入：金額 − 已分配；支出：−（金額 − 已分配）。所以公帳支出是負數、薪水撥款是 0。
+- 儀表板分析（`client/src/components/DashboardAnalytics.tsx`）：需要注意（代墊 >30 天、欠薪分潤 >60 天沒付、優惠碼到期）、本月 vs 上月、公積金走勢（`reports.timeline`，每月月底餘額／欠款／公積金，台灣時區）、營收排行（書籍依定價比例拆到每本）、支出分類（薪水合併）、小班家教預收（依 `courses.start_date`～`end_date` 線性估算）、月報 CSV 下載。
+- **創始基金是要還的借款**（使用者 2026-10-27 確認）：記成收入並分回出資人子帳＝公司欠他；不算營業額；`personStats.loan` 會單獨列出，欠薪提醒會扣掉這部分。
 - 儀表板圖表（`client/src/components/DashboardCharts.tsx`，recharts）：月營業額（依收入來源堆疊，舊記錄用類別名稱推回來源）、每人營業額（`reports.personStats` 的 earned）、每人欠薪（balance）。「創始基金」視為股東投入，不算營業額。配色照 dataviz 規範驗證過，黃／綠對比不足所以附「顯示表格」。
 
 ## 工作習慣

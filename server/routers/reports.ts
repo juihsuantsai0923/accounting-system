@@ -11,6 +11,7 @@ import {
   users,
 } from "../schema";
 import { eq, and, asc, desc, isNull } from "drizzle-orm";
+import { ledgerDelta } from "../ledger";
 import { toCsv, formatDate } from "../csv";
 
 const recipientTypeSchema = z.enum(["teacher", "salesperson"]);
@@ -66,6 +67,22 @@ const TYPE_LABELS: Record<string, string> = {
 /** 股東投入的資金（例如創始基金）不是營業收入，不算進每人營業額 */
 const NON_REVENUE_CATEGORIES = new Set(["創始基金"]);
 
+/** 台灣時間的月份（Workers 跑在 UTC，直接用 getMonth 會把月初 8 小時算到上個月） */
+function monthKeyTW(ts: number) {
+  const d = new Date(ts + 8 * 3600 * 1000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function nextMonth(key: string) {
+  let [y, m] = key.split("-").map(Number);
+  m += 1;
+  if (m > 12) {
+    m = 1;
+    y += 1;
+  }
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+
 /** 每人統計：累計分得的收入（營業額分潤）、已領的錢（薪水撥款）、目前公司欠款 */
 async function personStatsFor(db: any, recipientType: "teacher" | "salesperson", list: { id: number; name: string }[]) {
   const ledgerTable = recipientType === "teacher" ? teacherLedger : salespersonLedger;
@@ -75,17 +92,75 @@ async function personStatsFor(db: any, recipientType: "teacher" | "salesperson",
     const rows = await db.select().from(ledgerTable).where(eq(recipientColumn as any, person.id)).orderBy(asc(ledgerTable.id));
     let earned = 0;
     let paid = 0;
+    let loan = 0; // 要還的借款（例如創始基金）
+    let lastPaidAt: number | null = null;
+    let firstOwedAt: number | null = null;
+    const monthly: Record<string, { earned: number; paid: number }> = {};
     for (const r of rows as any[]) {
-      if (r.sourceType === "distribution" && r.type === "income" && !NON_REVENUE_CATEGORIES.has(r.categoryName ?? "")) earned += r.personalAmount;
-      if (r.sourceType === "distribution" && r.type === "expense") paid += r.personalAmount;
+      const m = monthKeyTW(r.createdAt);
+      monthly[m] ??= { earned: 0, paid: 0 };
+      if (r.sourceType === "distribution" && r.type === "income") {
+        if (NON_REVENUE_CATEGORIES.has(r.categoryName ?? "")) loan += r.personalAmount;
+        else {
+          earned += r.personalAmount;
+          monthly[m].earned += r.personalAmount;
+        }
+        firstOwedAt ??= r.createdAt;
+      }
+      if (r.sourceType === "distribution" && r.type === "expense") {
+        paid += r.personalAmount;
+        monthly[m].paid += r.personalAmount;
+        lastPaidAt = r.createdAt;
+      }
     }
     const balance = rows.length ? rows[rows.length - 1].personalBalance : 0;
-    out.push({ recipientType, recipientId: person.id, name: person.name, earned, paid, balance });
+    out.push({ recipientType, recipientId: person.id, name: person.name, earned, paid, loan, balance, lastPaidAt, firstOwedAt, monthly });
   }
   return out;
 }
 
 export const reportsRouter = router({
+  /**
+   * 每月月底的母帳餘額、公司欠所有人的錢、公積金（＝餘額 − 欠款）。
+   * 用來畫公積金走勢；跟儀表板的公積金卡片同一個算法，代墊也有算進欠款。
+   */
+  timeline: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role === "teacher_self" || ctx.user.role === "salesperson_self") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "無權查看全公司統計" });
+    }
+    const events: { month: string; balanceDelta: number; owedDelta: number }[] = [];
+    const ml = await ctx.db.select().from(mainLedger).where(isNull(mainLedger.deletedAt));
+    for (const r of ml as any[]) events.push({ month: monthKeyTW(r.createdAt), balanceDelta: r.type === "income" ? r.amount : -r.amount, owedDelta: 0 });
+    for (const tbl of [teacherLedger, salespersonLedger]) {
+      const rows = await ctx.db.select().from(tbl);
+      for (const r of rows as any[]) events.push({ month: monthKeyTW(r.createdAt), balanceDelta: 0, owedDelta: ledgerDelta(r) });
+    }
+    if (!events.length) return [];
+    const byMonth = new Map<string, { b: number; o: number }>();
+    for (const e of events) {
+      const v = byMonth.get(e.month) ?? { b: 0, o: 0 };
+      v.b += e.balanceDelta;
+      v.o += e.owedDelta;
+      byMonth.set(e.month, v);
+    }
+    const months = [...byMonth.keys()].sort();
+    const thisMonth = monthKeyTW(Date.now());
+    const last = months[months.length - 1] > thisMonth ? months[months.length - 1] : thisMonth;
+    const out = [];
+    let balance = 0;
+    let owed = 0;
+    let prevReserve = 0;
+    for (let m = months[0]; m <= last; m = nextMonth(m)) {
+      const v = byMonth.get(m) ?? { b: 0, o: 0 };
+      balance += v.b;
+      owed += v.o;
+      const reserve = balance - owed;
+      out.push({ month: m, balance, owed, reserve, reserveChange: reserve - prevReserve });
+      prevReserve = reserve;
+    }
+    return out;
+  }),
+
   /** 儀表板圖表用：每人營業額（累計分得收入）與欠薪；教師／推銷者本人帳號不能看全公司資料 */
   personStats: protectedProcedure.query(async ({ ctx }) => {
     if (ctx.user.role === "teacher_self" || ctx.user.role === "salesperson_self") {

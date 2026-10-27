@@ -22,21 +22,21 @@ const SOURCE_SERIES = [
   { key: "book", label: "書籍", color: "#1baf7a" },
   { key: "other", label: "其他收入", color: "#eda100" },
 ] as const;
-const BRAND = "#173b69";
-const INK_MUTED = "#64748b";
-const GRID = "#e2e8f0";
+export const BRAND = "#173b69";
+export const INK_MUTED = "#64748b";
+export const GRID = "#e2e8f0";
 
 /** 股東投入的資金不是營業收入，不算進營業額 */
-const NON_REVENUE_CATEGORIES = new Set(["創始基金"]);
+export const NON_REVENUE_CATEGORIES = new Set(["創始基金"]);
 
-function fmt(n: number) {
-  return `NT$${n.toLocaleString()}`;
+export function fmt(n: number) {
+  return n < 0 ? `−NT$${Math.abs(n).toLocaleString()}` : `NT$${n.toLocaleString()}`;
 }
-function fmtShort(n: number) {
+export function fmtShort(n: number) {
   return Math.abs(n) >= 10000 ? `${Math.round(n / 1000) / 10}萬` : n.toLocaleString();
 }
 /** 1、2、2.5、5 × 10ⁿ 的整齊刻度，避免出現 9,500、1.9萬 這種刻度 */
-function niceTicks(max: number, count = 4) {
+export function niceTicks(max: number, count = 4) {
   if (max <= 0) return [0];
   const raw = max / count;
   const pow = 10 ** Math.floor(Math.log10(raw));
@@ -46,12 +46,12 @@ function niceTicks(max: number, count = 4) {
   return ticks;
 }
 
-function monthOf(ts: number) {
+export function monthOf(ts: number) {
   const d = new Date(ts);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-interface LedgerRow {
+export interface LedgerRow {
   type: string;
   amount: number;
   categoryName: string;
@@ -59,7 +59,7 @@ interface LedgerRow {
   createdAt: number;
 }
 
-function inferSource(e: LedgerRow, courseNames: Set<string>) {
+export function inferSource(e: LedgerRow, courseNames: Set<string>) {
   if (e.incomeSource) return e.incomeSource;
   // 舊記錄沒有收入來源：用類別名稱推回去
   if (courseNames.has(e.categoryName)) return "course";
@@ -67,7 +67,7 @@ function inferSource(e: LedgerRow, courseNames: Set<string>) {
   return "other";
 }
 
-function ChartCard({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
+export function ChartCard({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
     <div className="card">
       <div className="mb-3">
@@ -79,7 +79,7 @@ function ChartCard({ title, note, children }: { title: string; note?: string; ch
   );
 }
 
-function tooltipStyle() {
+export function tooltipStyle() {
   return {
     contentStyle: { borderRadius: 8, border: `1px solid ${GRID}`, fontSize: 13 },
     labelStyle: { color: "#0f172a", fontWeight: 600 },

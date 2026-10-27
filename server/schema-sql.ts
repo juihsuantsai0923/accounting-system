@@ -211,6 +211,8 @@ export const courseColumnMigrations: { column: string; statement: string }[] = [
   { column: "base_price", statement: `ALTER TABLE courses ADD COLUMN base_price INTEGER` },
   { column: "original_price", statement: `ALTER TABLE courses ADD COLUMN original_price INTEGER` },
   { column: "category", statement: `ALTER TABLE courses ADD COLUMN category TEXT NOT NULL DEFAULT 'online'` },
+  { column: "start_date", statement: `ALTER TABLE courses ADD COLUMN start_date TEXT` },
+  { column: "end_date", statement: `ALTER TABLE courses ADD COLUMN end_date TEXT` },
 ];
 
 export const mainLedgerColumnMigrations: { column: string; statement: string }[] = [
