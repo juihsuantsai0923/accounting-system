@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { trpc } from "../lib/trpc";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { trpc, API_BASE } from "../lib/trpc";
 import { useAuth, canManage } from "../lib/auth";
 
 function fmt(n: number) {
@@ -32,12 +33,138 @@ const FILTERS: { key: Filter; label: string; test: (r: string) => boolean }[] = 
   { key: "all", label: "全部", test: () => true },
 ];
 
+const WEBSITE_ORDERS_URL = "https://leviax-lab.vercel.app/admin/orders?tab=pending";
+
+/** 書籤小工具：在官網後台點它，就會載入記帳系統的同步腳本 */
+function bookmarkletFor(key: string) {
+  const origin = window.location.origin;
+  const cfg = JSON.stringify({ key, api: API_BASE || origin, back: `${origin}/reconcile?synced=1` });
+  const code = `(function(){window.__LX_SYNC=${cfg};var s=document.createElement('script');s.src='${origin}/web-orders-sync.js?v='+Date.now();document.body.appendChild(s);})()`;
+  return "javascript:" + encodeURIComponent(code);
+}
+
+/** React 會擋 href="javascript:..."，所以掛載後再用 setAttribute 設定 */
+function BookmarkletLink({ href }: { href: string }) {
+  const ref = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    ref.current?.setAttribute("href", href);
+  }, [href]);
+  return (
+    <a
+      ref={ref}
+      onClick={(e) => {
+        e.preventDefault();
+        alert("請用拖的：按住這個按鈕，拖到瀏覽器上方的書籤列。");
+      }}
+      className="inline-flex items-center gap-2 rounded-lg bg-gold-500 px-4 py-2 text-sm font-medium text-white shadow-card cursor-grab"
+    >
+      ⇅ 同步到記帳
+    </a>
+  );
+}
+
+function SyncPanel({ syncedAt, onRefresh }: { syncedAt: number | null; onRefresh: () => void }) {
+  const { user } = useAuth();
+  const utils = trpc.useUtils();
+  const statusQuery = trpc.webOrders.syncKeyStatus.useQuery();
+  const generate = trpc.webOrders.generateSyncKey.useMutation({ onSuccess: () => utils.webOrders.syncKeyStatus.invalidate() });
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const [showSetup, setShowSetup] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+  const isAdmin = user?.role === "super_admin";
+  const hasKey = statusQuery.data?.exists;
+
+  // 回到這個分頁時自動重新整理，同步完不用手動按重新整理
+  useEffect(() => {
+    if (!waiting) return;
+    const onFocus = () => onRefresh();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [waiting, onRefresh]);
+
+  return (
+    <div className="card space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="font-medium text-slate-700">和官網同步</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {syncedAt ? `上次同步：${fmtTime(syncedAt)}` : "還沒同步過"}
+            {statusQuery.data?.lastUsedAt ? `（書籤最後使用：${fmtTime(statusQuery.data.lastUsedAt)}）` : ""}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            className="btn-primary"
+            disabled={!hasKey}
+            title={hasKey ? undefined : "要先設定同步書籤"}
+            onClick={() => {
+              setWaiting(true);
+              window.open(WEBSITE_ORDERS_URL, "_blank");
+            }}
+          >
+            立即同步官網訂單
+          </button>
+          <button className="btn-secondary" onClick={() => setShowSetup((v) => !v)}>
+            {hasKey ? "書籤設定" : "設定同步書籤"}
+          </button>
+        </div>
+      </div>
+
+      {waiting && (
+        <div className="text-sm bg-brand-50 text-brand-800 rounded-lg px-3 py-2">
+          已打開官網訂單頁。請在那個分頁點書籤列上的「⇅ 同步到記帳」，完成後會自動回到這裡並更新結果。
+        </div>
+      )}
+
+      {(showSetup || (!hasKey && !statusQuery.isLoading)) && (
+        <div className="border border-slate-200 rounded-lg p-4 space-y-3 text-sm text-slate-700">
+          <div className="font-medium">一次性設定（每台電腦、每個瀏覽器做一次）</div>
+          <ol className="list-decimal pl-5 space-y-1 text-slate-600">
+            <li>瀏覽器要顯示書籤列（Chrome：Ctrl＋Shift＋B）。</li>
+            <li>按下面的「產生同步書籤」，把出現的金色按鈕<b>拖到書籤列</b>。</li>
+            <li>之後要對帳：按上面「立即同步官網訂單」→ 在打開的官網分頁點書籤「⇅ 同步到記帳」。</li>
+          </ol>
+          <p className="text-xs text-slate-500">
+            書籤裡有一組專用金鑰，只能把官網訂單送進記帳系統，不能讀任何帳務資料；它會讀官網後台的訂單（你要已登入官網），但不讀電話、地址、匯款末五碼。
+            {hasKey && " 重新產生後，之前拖過的書籤就會失效，要重新拖一次。"}
+          </p>
+          {isAdmin ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                className="btn-secondary"
+                disabled={generate.isPending}
+                onClick={async () => {
+                  if (hasKey && !confirm("重新產生後，之前的同步書籤會失效。確定要重新產生嗎？")) return;
+                  const r = await generate.mutateAsync();
+                  setNewKey(r.key);
+                }}
+              >
+                {generate.isPending ? "產生中..." : hasKey ? "重新產生同步書籤" : "產生同步書籤"}
+              </button>
+              {newKey && (
+                <>
+                  <BookmarkletLink href={bookmarkletFor(newKey)} />
+                  <span className="text-xs text-amber-700">← 拖到書籤列（這個按鈕只會出現這一次）</span>
+                </>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-amber-700">產生同步書籤需要系統管理員權限，請管理員產生後把書籤分享給你。</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ReconcilePage() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
   const query = trpc.webOrders.reconcile.useQuery();
   const setManual = trpc.webOrders.setManualStatus.useMutation({ onSuccess: () => utils.webOrders.reconcile.invalidate() });
   const [filter, setFilter] = useState<Filter>("action");
+  const [params, setParams] = useSearchParams();
+  const justSynced = params.get("synced") === "1";
 
   const data = query.data;
   const orders = data?.orders ?? [];
@@ -56,6 +183,16 @@ export default function ReconcilePage() {
       </div>
 
       {query.error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{query.error.message}</div>}
+      {justSynced && (
+        <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 flex justify-between">
+          <span>✓ 官網訂單已同步，下面是最新的對帳結果。</span>
+          <button className="text-emerald-700 underline" onClick={() => setParams({})}>
+            關閉
+          </button>
+        </div>
+      )}
+
+      {manage && <SyncPanel syncedAt={data?.syncedAt ?? null} onRefresh={() => query.refetch()} />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="card">

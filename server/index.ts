@@ -8,6 +8,7 @@ import { createContext } from "./context";
 import { ensureAdmin } from "./ensureAdmin";
 import { ensureSalaryExpenseTypes } from "./ensureSalaryExpenseTypes";
 import { db } from "./db";
+import { handleSyncRequest } from "./webOrdersSync";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -19,7 +20,12 @@ async function main() {
 
   const app = express();
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: "2mb" }));
+
+  app.post("/api/web-orders/sync", async (req, res) => {
+    const [status, payload] = await handleSyncRequest(db, req.header("x-sync-key") ?? null, req.body);
+    res.status(status).json(payload);
+  });
 
   app.use("/trpc", createExpressMiddleware({ router: appRouter, createContext }));
 

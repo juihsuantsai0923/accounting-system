@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure, staffProcedure } from "../trpc";
-import { courses, mainLedger, webOrders } from "../schema";
+import { router, protectedProcedure, staffProcedure, adminProcedure } from "../trpc";
+import { courses, integrationKeys, mainLedger, webOrders } from "../schema";
+import { SYNC_KEY_NAME, newSyncKey, sha256Hex } from "../webOrdersSync";
 import { asc, eq, isNull } from "drizzle-orm";
 import { writeAudit } from "../ledger";
 
@@ -129,6 +130,25 @@ export const webOrdersRouter = router({
       },
       offline,
     };
+  }),
+
+  /** 官網同步金鑰有沒有設定、最後一次使用時間（不回傳金鑰本身） */
+  syncKeyStatus: staffProcedure.query(async ({ ctx }) => {
+    const [row] = await ctx.db.select().from(integrationKeys).where(eq(integrationKeys.name, SYNC_KEY_NAME)).limit(1);
+    return row ? { exists: true, createdAt: row.createdAt, lastUsedAt: row.lastUsedAt } : { exists: false, createdAt: null, lastUsedAt: null };
+  }),
+
+  /** 產生新的官網同步金鑰（舊的立即失效）。金鑰只在這次回傳，資料庫只存 SHA-256 */
+  generateSyncKey: adminProcedure.mutation(async ({ ctx }) => {
+    const key = newSyncKey();
+    const keyHash = await sha256Hex(key);
+    const now = Date.now();
+    await ctx.db
+      .insert(integrationKeys)
+      .values({ name: SYNC_KEY_NAME, keyHash, createdAt: now, lastUsedAt: null })
+      .onConflictDoUpdate({ target: integrationKeys.name, set: { keyHash, createdAt: now, lastUsedAt: null } });
+    await writeAudit(ctx.db, ctx.user.id, "update", "integrationKey", 0, null, { name: SYNC_KEY_NAME, createdAt: now });
+    return { key };
   }),
 
   /** 手動標記：matched＝人工確認沒問題、ignored＝這張不需入帳、null＝取消標記 */

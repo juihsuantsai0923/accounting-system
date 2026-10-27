@@ -213,6 +213,13 @@ export const createTableStatements: string[] = [
     manual_status TEXT,
     manual_note TEXT
   )`,
+
+  `CREATE TABLE IF NOT EXISTS integration_keys (
+    name TEXT PRIMARY KEY,
+    key_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER
+  )`,
 ];
 
 /**

@@ -3,11 +3,14 @@ import { appRouter } from "./routers/index";
 import { createD1Context, type Env } from "./context.d1";
 import { ensureAdmin } from "./ensureAdmin";
 import { ensureSalaryExpenseTypes } from "./ensureSalaryExpenseTypes";
+import { handleSyncRequest } from "./webOrdersSync";
+import { drizzle } from "drizzle-orm/d1";
+import * as schema from "./schema";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Sync-Key",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -27,6 +30,18 @@ export default {
 
     if (url.pathname === "/api/health") {
       return withCors(Response.json({ ok: true }));
+    }
+
+    // 官網訂單同步（書籤小工具從官網後台送過來，用同步金鑰驗證）
+    if (url.pathname === "/api/web-orders/sync" && request.method === "POST") {
+      let body: unknown = null;
+      try {
+        body = await request.json();
+      } catch {
+        return withCors(Response.json({ error: "資料不是 JSON" }, { status: 400 }));
+      }
+      const [status, payload] = await handleSyncRequest(drizzle(env.DB, { schema }), request.headers.get("x-sync-key"), body);
+      return withCors(Response.json(payload, { status }));
     }
 
     if (url.pathname.startsWith("/trpc")) {

@@ -254,4 +254,12 @@ export const webOrders = sqliteTable("web_orders", {
   manualNote: text("manual_note"),
 });
 
+// ── IntegrationKeys / 外部整合金鑰（只存 SHA-256；目前只有官網訂單同步書籤） ─────────────────────────────
+export const integrationKeys = sqliteTable("integration_keys", {
+  name: text("name").primaryKey(),
+  keyHash: text("key_hash").notNull(),
+  createdAt: integer("created_at").notNull(),
+  lastUsedAt: integer("last_used_at"),
+});
+
 export const schemaSql = sql;
