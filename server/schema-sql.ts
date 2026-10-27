@@ -199,6 +199,20 @@ export const createTableStatements: string[] = [
     updated_at INTEGER NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS coupons_code_idx ON coupons(code)`,
+
+  `CREATE TABLE IF NOT EXISTS web_orders (
+    order_no TEXT PRIMARY KEY,
+    ordered_at INTEGER NOT NULL,
+    buyer TEXT NOT NULL,
+    total INTEGER NOT NULL,
+    discount INTEGER NOT NULL DEFAULT 0,
+    status_label TEXT NOT NULL,
+    tab TEXT NOT NULL,
+    items TEXT NOT NULL,
+    synced_at INTEGER NOT NULL,
+    manual_status TEXT,
+    manual_note TEXT
+  )`,
 ];
 
 /**

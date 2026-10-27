@@ -392,11 +392,22 @@ export function PrepaidTutoringCard({ entries, courses }: { entries: Entry[]; co
 // ─────────────────────────────── 提醒 ───────────────────────────────
 const DAY = 24 * 3600 * 1000;
 
-export function AlertsCard({ advances, coupons, stats }: { advances: any[]; coupons: any[]; stats: PersonStatFull[] }) {
+export function AlertsCard({
+  advances,
+  coupons,
+  stats,
+  reconcileIssues = 0,
+}: {
+  advances: any[];
+  coupons: any[];
+  stats: PersonStatFull[];
+  reconcileIssues?: number;
+}) {
   const now = Date.now();
   const today = new Date().toISOString().slice(0, 10);
   const in30 = new Date(now + 30 * DAY).toISOString().slice(0, 10);
   const items: { level: "warn" | "info"; text: string }[] = [];
+  if (reconcileIssues > 0) items.push({ level: "warn", text: `官網有 ${reconcileIssues} 張訂單跟母記帳表對不上（到「官網對帳」處理）` });
 
   const staleAdvances = advances.filter((a) => a.status === "unsettled" && now - a.createdAt > 30 * DAY);
   if (staleAdvances.length) {

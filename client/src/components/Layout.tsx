@@ -71,6 +71,11 @@ export default function Layout() {
             推銷者
           </TabLink>
         ))}
+      {!isTeacherSelf && !isSalespersonSelf && (
+        <TabLink to="/reconcile" onClick={closeMenu}>
+          官網對帳
+        </TabLink>
+      )}
       <TabLink to="/advance" onClick={closeMenu}>
         代墊管理
       </TabLink>

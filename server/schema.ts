@@ -239,4 +239,19 @@ export const revenueTeamMembers = sqliteTable("revenue_team_members", {
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
 });
 
+// ── WebOrders / 官網訂單快照（對帳、應收帳款用；不存電話、地址、匯款末五碼） ─────────────────────────────
+export const webOrders = sqliteTable("web_orders", {
+  orderNo: text("order_no").primaryKey(),
+  orderedAt: integer("ordered_at").notNull(),
+  buyer: text("buyer").notNull(),
+  total: integer("total").notNull(), // 官網實付金額（已扣折扣、含運費）
+  discount: integer("discount").notNull().default(0),
+  statusLabel: text("status_label").notNull(), // 官網顯示的狀態，例如 待付款、課程已開通、訂單完成、已取消
+  tab: text("tab").notNull(), // pending | completed | cancelled
+  items: text("items").notNull(), // JSON：[{ name, price, preorder, bundle }]
+  syncedAt: integer("synced_at").notNull(),
+  manualStatus: text("manual_status"), // 記帳這邊手動標記：matched（已人工確認）| ignored（不需入帳）
+  manualNote: text("manual_note"),
+});
+
 export const schemaSql = sql;

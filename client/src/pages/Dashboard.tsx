@@ -43,6 +43,11 @@ export default function Dashboard() {
   const booksQuery = trpc.books.list.useQuery(undefined, { enabled: !isSelfRole });
   const couponsQuery = trpc.coupons.list.useQuery(undefined, { enabled: !isSelfRole });
   const advancesQuery = trpc.advancePayments.list.useQuery({ status: "unsettled" }, { enabled: !isSelfRole });
+  const reconcileQuery = trpc.webOrders.reconcile.useQuery(undefined, { enabled: !isSelfRole });
+  const receivable = reconcileQuery.data?.receivable;
+  const reconcileIssues = (reconcileQuery.data?.orders ?? []).filter((o) =>
+    ["missing", "probable", "mismatch", "matched_gross"].includes(o.result)
+  ).length;
   const bookPrices = new Map((booksQuery.data ?? []).map((b) => [b.name, b.price]));
   const [period, setPeriod] = useState<Period>("all");
   const entries = mainLedgerQuery.data ?? [];
@@ -106,7 +111,19 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <AlertsCard advances={advancesQuery.data ?? []} coupons={couponsQuery.data ?? []} stats={stats} />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2">
+          <AlertsCard advances={advancesQuery.data ?? []} coupons={couponsQuery.data ?? []} stats={stats} reconcileIssues={reconcileIssues} />
+        </div>
+        <Link to="/reconcile" className="card block hover:shadow-card-hover transition-shadow">
+          <div className="text-sm text-slate-500">應收帳款（官網待付款）</div>
+          <div className="text-2xl font-semibold mt-1 text-brand-700">{fmt(receivable?.total ?? 0)}</div>
+          <div className="text-xs text-slate-400 mt-1">
+            {receivable?.count ? `${receivable.count} 張訂單，最早 ${new Date(receivable.oldestAt!).toLocaleDateString()} 下單` : "目前沒有待付款訂單"}
+          </div>
+          <div className="text-xs text-brand-600 mt-2">查看官網對帳 →</div>
+        </Link>
+      </div>
 
       <KpiCompare entries={entries} timeline={timeline} />
 
