@@ -557,7 +557,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-slate-800">{view === "entry" ? "手動記帳" : "帳本"}</h1>
+        <h1 className="text-2xl text-brand-700">{view === "entry" ? "手動記帳" : "帳本"}</h1>
         <div className="flex flex-wrap gap-2">
           {view === "entry" && (
             <Link to="/ledger" className="btn-secondary">
@@ -585,7 +585,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
 
       {view === "entry" && canManage(user?.role) && (
         <form onSubmit={handleSubmit} className="card space-y-4">
-          <h2 className="font-medium text-slate-700">新增記錄</h2>
+          <h2 className="font-medium text-brand-700">新增記錄</h2>
           {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
           {successMsg && <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">{successMsg}</div>}
 

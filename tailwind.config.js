@@ -4,44 +4,49 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Leviax 品牌深藍（取自 logo 的 #173B69）
+        // 跟 Leviax 官網（預設淺色主題）同一套：主色 brand-navy #1e3a6e＝700
         brand: {
-          50: "#eef3f9",
-          100: "#dbe6f2",
-          200: "#b0c7e2",
-          300: "#7fa3cd",
-          400: "#4c7ab0",
-          500: "#2f5a8f",
-          600: "#1d4372",
-          700: "#173b69",
-          800: "#122c50",
-          900: "#0b1b32",
+          50: "#eef4ff", // 官網 brand-light
+          100: "#e4ecfb", // 官網 brand-hover
+          200: "#c6d6f3",
+          300: "#8dafee", // 官網 brand-blue
+          400: "#5a86d0", // 官網 brand-blue-dark
+          500: "#3a63a8",
+          600: "#2a4d8a",
+          700: "#1e3a6e", // 官網 brand-navy
+          800: "#172d56",
+          900: "#0f1f3d",
         },
-        // Leviax 品牌金黃（取自 logo 的 #E8A233），用來點綴強調重點
+        // 官網金色 #ffd172（400）與金色漸層 #f5dc80 → #e8c96a → #c8a040
         gold: {
-          50: "#fdf6e9",
-          100: "#faebc9",
-          200: "#f3d38e",
-          300: "#edbb5c",
-          400: "#eaac3f",
-          500: "#e8a233",
-          600: "#c9821f",
-          700: "#a2661a",
-          800: "#7c4f18",
-          900: "#5c3b14",
+          50: "#fffaeb",
+          100: "#fff1c7",
+          200: "#ffe6a0",
+          300: "#f5dc80",
+          400: "#ffd172",
+          500: "#e8c96a",
+          600: "#c8a040",
+          700: "#9c7a2c",
+          800: "#765b20",
+          900: "#4f3d16",
         },
+      },
+      fontFamily: {
+        sans: ['"Noto Sans TC"', "system-ui", "-apple-system", '"Microsoft JhengHei"', "sans-serif"],
+        serif: ['"Noto Serif TC"', "Georgia", "serif"],
       },
       boxShadow: {
-        card: "0 1px 2px 0 rgb(15 40 71 / 0.04), 0 2px 8px -2px rgb(15 40 71 / 0.08)",
-        "card-hover": "0 4px 16px -4px rgb(15 40 71 / 0.14), 0 2px 6px -2px rgb(15 40 71 / 0.08)",
-        header: "0 2px 16px -4px rgb(11 27 50 / 0.35)",
+        card: "0 4px 6px -1px rgb(30 58 110 / 0.05), 0 2px 4px -2px rgb(30 58 110 / 0.05)",
+        "card-hover": "0 10px 15px -3px rgb(30 58 110 / 0.10), 0 4px 6px -4px rgb(30 58 110 / 0.08)",
+        header: "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
       },
       borderRadius: {
-        xl: "0.875rem",
+        xl: "0.75rem",
+        "2xl": "1rem",
       },
       backgroundImage: {
-        "brand-gradient": "linear-gradient(135deg, #173b69 0%, #0b1b32 100%)",
-        "gold-gradient": "linear-gradient(135deg, #eaac3f 0%, #c9821f 100%)",
+        "brand-gradient": "linear-gradient(135deg, #1e3a6e 0%, #172d56 100%)",
+        "gold-gradient": "linear-gradient(105deg, #f5dc80 0%, #e8c96a 50%, #c8a040 100%)",
       },
     },
   },

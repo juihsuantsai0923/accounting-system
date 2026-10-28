@@ -2,47 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 風格跟 Leviax 官網（預設淺色主題）一致：白底、深藍 #1e3a6e 文字、金色點綴；內文 Noto Sans TC，標題 Noto Serif TC */
 body {
-  font-family: "LXGW WenKai TC", "Noto Sans TC", -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", sans-serif;
-  background-color: #f4f6fb;
-  background-image: radial-gradient(circle at top left, rgba(23, 59, 105, 0.06), transparent 45%),
-    radial-gradient(circle at bottom right, rgba(232, 162, 51, 0.05), transparent 40%);
-  background-attachment: fixed;
-  color: #1e2333;
+  font-family: "Noto Sans TC", system-ui, -apple-system, "Microsoft JhengHei", sans-serif;
+  background-color: #ffffff;
+  color: #1e3a6e;
   -webkit-font-smoothing: antialiased;
-  letter-spacing: 0.01em;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Noto Serif TC", Georgia, serif;
+  letter-spacing: 0.02em;
 }
 
 .card {
-  @apply bg-white rounded-xl shadow-card border border-slate-100/80 p-5 sm:p-6 transition-shadow duration-200;
+  @apply bg-white rounded-2xl shadow-card border border-brand-700/15 p-5 sm:p-6 transition-all duration-300;
 }
 
 .card:hover {
-  @apply shadow-card-hover;
+  @apply shadow-card-hover border-brand-700/25;
 }
 
 .btn {
-  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium tracking-wide transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium tracking-wide transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
 .btn-primary {
-  @apply btn bg-brand-gradient text-white shadow-md hover:shadow-lg hover:brightness-110 active:brightness-95;
+  @apply btn bg-brand-700 text-white shadow-sm hover:bg-brand-800 active:bg-brand-900;
 }
 
 .btn-secondary {
-  @apply btn bg-white text-slate-600 border border-slate-200 shadow-sm hover:bg-slate-50 hover:text-brand-700 hover:border-brand-200;
+  @apply btn bg-white text-brand-700 border border-brand-700/20 hover:bg-brand-100 hover:border-brand-700/40;
 }
 
 .btn-danger {
-  @apply btn bg-transparent text-red-500 border border-red-100 hover:bg-red-50 hover:text-red-600;
+  @apply btn bg-transparent text-red-600 border border-red-200 hover:bg-red-50;
 }
 
+/* 官網「登入」那種金色漸層按鈕 */
 .btn-gold {
-  @apply btn bg-gold-gradient text-brand-900 font-semibold shadow-md hover:shadow-lg hover:brightness-105 active:brightness-95;
+  @apply btn bg-gold-gradient text-brand-700 font-semibold hover:opacity-90;
 }
 
 .input {
-  @apply w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100;
+  @apply w-full rounded-md border border-brand-700/20 bg-white px-3 py-2 text-sm text-brand-700 placeholder:text-slate-400 transition-colors focus:border-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-100;
 }
 
 .label {
@@ -54,11 +59,11 @@ table.data-table {
 }
 
 table.data-table th {
-  @apply text-left font-semibold text-brand-700/70 text-xs uppercase tracking-wider border-b-2 border-brand-100 px-3 py-2.5 whitespace-nowrap bg-brand-50/50;
+  @apply text-left font-semibold text-brand-700/70 text-xs tracking-wider border-b-2 border-gold-400/50 px-3 py-2.5 whitespace-nowrap bg-brand-50;
 }
 
 table.data-table td {
-  @apply border-b border-slate-50 px-3 py-2.5 whitespace-nowrap text-slate-700;
+  @apply border-b border-brand-700/10 px-3 py-2.5 whitespace-nowrap text-slate-700;
 }
 
 table.data-table tbody tr {
@@ -66,7 +71,7 @@ table.data-table tbody tr {
 }
 
 table.data-table tbody tr:hover {
-  @apply bg-gold-50/60;
+  @apply bg-brand-50/70;
 }
 
 /* 手機直式螢幕較窄時，表格允許橫向捲動，不會把整個頁面版面撐爆 */

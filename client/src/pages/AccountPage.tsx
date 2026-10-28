@@ -66,7 +66,7 @@ export default function AccountPage() {
 
   return (
     <div className="space-y-6 max-w-xl">
-      <h1 className="text-xl font-semibold text-slate-800">帳號設定</h1>
+      <h1 className="text-2xl text-brand-700">帳號設定</h1>
 
       <div className="card space-y-1">
         <div className="text-sm text-slate-500">目前登入身份</div>
@@ -77,7 +77,7 @@ export default function AccountPage() {
       </div>
 
       <form onSubmit={handleNameSubmit} className="card space-y-4">
-        <h2 className="font-medium text-slate-700">修改姓名</h2>
+        <h2 className="font-medium text-brand-700">修改姓名</h2>
         {nameError && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{nameError}</div>}
         {nameSuccess && <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">{nameSuccess}</div>}
         <div>
@@ -90,7 +90,7 @@ export default function AccountPage() {
       </form>
 
       <form onSubmit={handleSubmit} className="card space-y-4">
-        <h2 className="font-medium text-slate-700">修改密碼</h2>
+        <h2 className="font-medium text-brand-700">修改密碼</h2>
         {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
         {success && <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">{success}</div>}
         <div>

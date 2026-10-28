@@ -11,7 +11,7 @@ const BOOK_KIND_LABELS: Record<string, string> = { book: "講義", workbook: "�
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="card space-y-4">
-      <h2 className="font-medium text-slate-700">{title}</h2>
+      <h2 className="font-medium text-brand-700">{title}</h2>
       {children}
     </div>
   );
@@ -927,7 +927,7 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-slate-800">管理面板</h1>
+      <h1 className="text-2xl text-brand-700">管理面板</h1>
       <div className="flex gap-2 flex-wrap">
         {tabs.map((t) => (
           <button

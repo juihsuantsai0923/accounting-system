@@ -22,7 +22,7 @@ const SOURCE_SERIES = [
   { key: "book", label: "書籍", color: "#1baf7a" },
   { key: "other", label: "其他收入", color: "#eda100" },
 ] as const;
-export const BRAND = "#173b69";
+export const BRAND = "#1e3a6e";
 export const INK_MUTED = "#64748b";
 export const GRID = "#e2e8f0";
 
@@ -97,7 +97,7 @@ export function ChartCard({ title, note, children }: { title: string; note?: str
   return (
     <div className="card">
       <div className="mb-3">
-        <h2 className="font-medium text-slate-700">{title}</h2>
+        <h2 className="font-medium text-brand-700">{title}</h2>
         {note && <p className="text-xs text-slate-400 mt-0.5">{note}</p>}
       </div>
       {children}

@@ -22,7 +22,7 @@ export function PeopleDirectory({ kind }: Props) {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-slate-800">{label}列表</h1>
+      <h1 className="text-2xl text-brand-700">{label}列表</h1>
       <div className="card space-y-4">
         <input className="input" placeholder={`搜尋${label}姓名...`} value={query} onChange={(e) => setQuery(e.target.value)} />
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">

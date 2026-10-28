@@ -51,7 +51,7 @@ export default function SalespersonLedgerPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-slate-800">推銷者子記帳表：{salesperson?.name ?? "..."}</h1>
+        <h1 className="text-2xl text-brand-700">推銷者子記帳表：{salesperson?.name ?? "..."}</h1>
         <div className="flex items-center gap-3">
           <div className="card !p-3 !py-2 text-sm">
             目前餘額：<span className="font-semibold">{fmt(currentBalance)}</span>

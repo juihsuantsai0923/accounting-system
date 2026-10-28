@@ -97,7 +97,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-slate-800">儀表板總覽</h1>
+        <h1 className="text-2xl text-brand-700">儀表板總覽</h1>
         <MonthlyReportButton entries={entries} timeline={timeline} stats={stats} courseNames={courseNames} />
       </div>
 
@@ -177,7 +177,7 @@ export default function Dashboard() {
 
       <div className="card">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-          <h2 className="font-medium text-slate-700">應付總覽（公司目前欠每個人多少錢）</h2>
+          <h2 className="font-medium text-brand-700">應付總覽（公司目前欠每個人多少錢）</h2>
           <div className="flex items-center gap-3">
             <div className="text-sm text-slate-500">合計應付：{fmt(totalOwed)}</div>
             <button className="btn-secondary" onClick={handleExportOverviewCsv}>

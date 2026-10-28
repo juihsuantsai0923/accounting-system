@@ -59,7 +59,7 @@ function BookmarkletLink({ href }: { href: string }) {
         e.preventDefault();
         alert("請用拖的：按住這個按鈕，拖到瀏覽器上方的書籤列。");
       }}
-      className="inline-flex items-center gap-2 rounded-lg bg-gold-500 px-4 py-2 text-sm font-medium text-white shadow-card cursor-grab"
+      className="btn-gold gap-2 cursor-grab"
     >
       ⇅ 同步到記帳
     </a>
@@ -89,7 +89,7 @@ function SyncPanel({ syncedAt, onRefresh }: { syncedAt: number | null; onRefresh
     <div className="card space-y-3">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="font-medium text-slate-700">和官網同步</h2>
+          <h2 className="font-medium text-brand-700">和官網同步</h2>
           <p className="text-xs text-slate-500 mt-0.5">
             {syncedAt ? `上次同步：${fmtTime(syncedAt)}` : "還沒同步過"}
             {statusQuery.data?.lastUsedAt ? `（書籤最後使用：${fmtTime(statusQuery.data.lastUsedAt)}）` : ""}
@@ -191,7 +191,7 @@ export default function ReconcilePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-800">官網對帳</h1>
+        <h1 className="text-2xl text-brand-700">官網對帳</h1>
         <p className="text-sm text-slate-500 mt-1">
           把 Leviax 官網的訂單和帳本對起來：官網已付款但沒記帳、金額對不上、還沒付款的應收帳款，一次看清楚。
           {data?.syncedAt ? ` 官網資料最後同步：${fmtTime(data.syncedAt)}。` : " 還沒有同步過官網訂單。"}
@@ -409,7 +409,7 @@ export default function ReconcilePage() {
 
       {(data?.offline.length ?? 0) > 0 && (
         <div className="card space-y-2">
-          <h2 className="font-medium text-slate-700">記帳有、官網沒有</h2>
+          <h2 className="font-medium text-brand-700">記帳有、官網沒有</h2>
           <p className="text-xs text-slate-500">這些課程、書籍收入沒有對到官網訂單，可能是線下收款、轉帳直接付款，或官網訂單還沒同步。確認是線下收款就不用處理。</p>
           <div className="table-wrap">
             <table className="data-table">

@@ -34,7 +34,7 @@ export default function Login() {
         </div>
         <div className="flex flex-col items-center text-center gap-1.5 mb-8">
           <p className="text-xs font-semibold tracking-[0.35em] text-gold-400">LEVIAX LAB</p>
-          <h1 className="text-xl font-semibold text-white tracking-wide">澈點科學財務系統</h1>
+          <h1 className="text-2xl text-white tracking-wide">澈點科學財務系統</h1>
           <p className="text-sm text-white/60">請登入以繼續</p>
         </div>
 
@@ -56,7 +56,7 @@ export default function Login() {
             <label className="label">密碼</label>
             <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </div>
-          <button className="btn-primary w-full" type="submit" disabled={loading}>
+          <button className="btn-gold w-full" type="submit" disabled={loading}>
             {loading ? "登入中..." : "登入"}
           </button>
         </form>

@@ -11,9 +11,7 @@ function TabLink({ to, children, onClick }: { to: string; children: React.ReactN
       onClick={onClick}
       className={({ isActive }) =>
         `px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-150 ${
-          isActive
-            ? "bg-white/10 text-gold-400 shadow-inner ring-1 ring-gold-500/30"
-            : "text-white/70 hover:bg-white/10 hover:text-white"
+          isActive ? "bg-brand-50 text-brand-700 ring-1 ring-gold-400/70" : "text-brand-700/80 hover:bg-brand-100 hover:text-brand-700"
         }`
       }
     >
@@ -36,7 +34,7 @@ function PeopleMenu({ mobile, onNavigate }: { mobile: boolean; onNavigate: () =>
           {t.name}
         </TabLink>
       ))}
-      {teachers.length > 0 && <div className="my-0.5 border-t border-white/10" />}
+      {teachers.length > 0 && <div className="my-0.5 border-t border-brand-700/10" />}
       <TabLink to="/salespeople" onClick={onNavigate}>
         推銷者
       </TabLink>
@@ -46,7 +44,7 @@ function PeopleMenu({ mobile, onNavigate }: { mobile: boolean; onNavigate: () =>
   if (mobile) {
     return (
       <div className="flex flex-col gap-1">
-        <div className="px-3 pt-1 text-xs text-white/50">人員</div>
+        <div className="px-3 pt-1 text-xs text-brand-700/50">人員</div>
         <div className="pl-3 flex flex-col gap-1">{items}</div>
       </div>
     );
@@ -57,14 +55,14 @@ function PeopleMenu({ mobile, onNavigate }: { mobile: boolean; onNavigate: () =>
         type="button"
         aria-haspopup="true"
         className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-150 ${
-          active ? "bg-white/10 text-gold-400 shadow-inner ring-1 ring-gold-500/30" : "text-white/70 hover:bg-white/10 hover:text-white"
+          active ? "bg-brand-50 text-brand-700 ring-1 ring-gold-400/70" : "text-brand-700/80 hover:bg-brand-100 hover:text-brand-700"
         }`}
       >
         人員 ▾
       </button>
       {/* pt-1 讓滑鼠從按鈕移到子選單的途中不會斷掉 */}
       <div className="absolute left-0 top-full pt-1 hidden group-hover:block group-focus-within:block z-20">
-        <div className="min-w-[8rem] rounded-lg bg-brand-800 shadow-lg ring-1 ring-white/10 p-1 flex flex-col gap-0.5">{items}</div>
+        <div className="min-w-[8rem] rounded-lg bg-white shadow-card-hover ring-1 ring-brand-700/15 p-1 flex flex-col gap-0.5">{items}</div>
       </div>
     </div>
   );
@@ -137,11 +135,11 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen">
-      <header className="bg-brand-gradient shadow-header sticky top-0 z-10">
+      <header className="bg-white border-b-2 border-gold-400/50 shadow-header sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <button
-              className="sm:hidden inline-flex items-center justify-center rounded-lg px-2.5 py-1.5 text-white/80 bg-white/10 hover:bg-white/20 transition-colors shrink-0"
+              className="sm:hidden inline-flex items-center justify-center rounded-md px-2.5 py-1.5 text-brand-700 bg-brand-50 hover:bg-brand-100 transition-colors shrink-0"
               onClick={() => setMenuOpen((v) => !v)}
               aria-label="開啟選單"
               type="button"
@@ -151,14 +149,14 @@ export default function Layout() {
             {/* 商標：與登入頁面統一改為白底圓角方框，裡面放圖示並留白，
                 深藍圖示原色在深藍色頁首上才不會融為一體看不見 */}
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-white shadow-md flex items-center justify-center shrink-0">
+              <div className="h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-white ring-1 ring-brand-700/15 flex items-center justify-center shrink-0">
                 <LeviaxLogo className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
               {/* 字體與顏色改回和下方功能列一致（沿用頁面預設字體、白色文字），但字級加大作為標題 */}
-              <div className="font-semibold text-white text-lg sm:text-xl tracking-tight truncate">澈點科學財務系統</div>
+              <div className="font-serif text-brand-700 text-lg sm:text-xl tracking-wide truncate">澈點科學財務系統</div>
             </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-white/70 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-brand-700/70 shrink-0">
             {user && (
               <>
                 <span className="hidden sm:inline">
@@ -166,7 +164,7 @@ export default function Layout() {
                 </span>
                 <button
                   onClick={handleLogout}
-                  className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-sm font-medium text-white/90 bg-white/10 border border-white/10 hover:bg-white/20 transition-colors"
+                  className="btn-gold !px-4 !py-1.5"
                 >
                   登出
                 </button>
@@ -180,9 +178,9 @@ export default function Layout() {
 
         {/* 手機直式：點漢堡選單展開的直向清單 */}
         {menuOpen && (
-          <div className="sm:hidden border-t border-white/10 px-3 py-3 flex flex-col gap-1 bg-brand-800">
+          <div className="sm:hidden border-t border-brand-700/10 px-3 py-3 flex flex-col gap-1 bg-white">
             {user && (
-              <div className="text-xs text-white/60 pb-2">
+              <div className="text-xs text-brand-700/60 pb-2">
                 {user.name}（{ROLE_LABELS[user.role] ?? user.role}）
               </div>
             )}

@@ -68,14 +68,14 @@ export default function AdvancePaymentsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-slate-800">代墊款管理</h1>
+      <h1 className="text-2xl text-brand-700">代墊款管理</h1>
       <p className="text-sm text-slate-500">
         教師/推銷者自行墊付了原屬於公司的費用時，在此建立代墊記錄——會立即計入該對象的子記帳表餘額，但不會寫入帳本。公司歸還時，可在此「核銷」，或於帳本新增正式撥款時直接勾選一併核銷。
       </p>
 
       {canManage(user?.role) && (
         <form onSubmit={handleSubmit} className="card space-y-4">
-          <h2 className="font-medium text-slate-700">新增代墊記錄</h2>
+          <h2 className="font-medium text-brand-700">新增代墊記錄</h2>
           {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
             <div>
@@ -128,7 +128,7 @@ export default function AdvancePaymentsPage() {
 
       <div className="card">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-          <h2 className="font-medium text-slate-700">代墊記錄列表</h2>
+          <h2 className="font-medium text-brand-700">代墊記錄列表</h2>
           <div className="flex flex-wrap items-center gap-2">
             <select className="input !w-40" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
               <option value="">全部狀態</option>
