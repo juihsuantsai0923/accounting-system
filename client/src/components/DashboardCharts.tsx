@@ -56,6 +56,7 @@ export interface LedgerRow {
   amount: number;
   categoryName: string;
   incomeSource: string | null;
+  breakdown?: string | null;
   createdAt: number;
 }
 
@@ -65,6 +66,31 @@ export function inferSource(e: LedgerRow, courseNames: Set<string>) {
   if (courseNames.has(e.categoryName)) return "course";
   if (e.categoryName.includes("行事曆") || e.categoryName.includes("書")) return "book";
   return "other";
+}
+
+/**
+ * 一筆收入拆成項目：多門課、多本書合成一筆的記錄，依 breakdown 拆回每一項（來源、名稱、金額）；
+ * 一般記錄就是它自己一項。報表統一用這個，合併記帳才不會整筆算成同一個來源。
+ */
+export function expandIncome<T extends LedgerRow & { itemName?: string; categoryId?: number }>(e: T, courseNames: Set<string>) {
+  if (e.breakdown) {
+    try {
+      const parts = JSON.parse(e.breakdown) as { source: string; name: string; categoryId: number; amount: number }[];
+      return parts.map((p) => ({
+        ...e,
+        incomeSource: p.source,
+        itemName: p.name,
+        categoryId: p.categoryId,
+        categoryName: p.source === "tutoring" ? "小班家教" : p.source === "book" ? "書籍" : p.name,
+        amount: p.amount,
+        breakdown: null,
+        source: p.source,
+      }));
+    } catch {
+      /* 明細壞掉就當一般記錄 */
+    }
+  }
+  return [{ ...e, source: inferSource(e, courseNames) }];
 }
 
 export function ChartCard({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
@@ -96,7 +122,7 @@ export function MonthlyRevenueChart({ entries, courseNames }: { entries: LedgerR
     for (const e of revenue) {
       const m = monthOf(e.createdAt);
       const row = byMonth.get(m) ?? { course: 0, tutoring: 0, book: 0, other: 0 };
-      row[inferSource(e, courseNames)] += e.amount;
+      for (const p of expandIncome(e, courseNames)) row[p.source] = (row[p.source] ?? 0) + p.amount;
       byMonth.set(m, row);
     }
     // 補齊中間沒有收入的月份，時間軸才不會跳

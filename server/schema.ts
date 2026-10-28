@@ -137,6 +137,8 @@ export const mainLedger = sqliteTable("main_ledger", {
   attachmentUrl: text("attachment_url"),
   // 收入來源：course（線上課程）／tutoring（小班家教）／book（書籍）／other（其他收入）；舊資料與支出為 null
   incomeSource: text("income_source"),
+  // 一筆記錄含多個項目時（例如一張官網訂單有多門課＋書）：JSON [{ source, name, categoryId, amount }]，報表依這個拆開算
+  breakdown: text("breakdown"),
   editedBy: integer("edited_by"),
   deletedAt: integer("deleted_at"),
   ...timestamps,
@@ -250,7 +252,7 @@ export const webOrders = sqliteTable("web_orders", {
   tab: text("tab").notNull(), // pending | completed | cancelled
   items: text("items").notNull(), // JSON：[{ name, price, preorder, bundle }]
   syncedAt: integer("synced_at").notNull(),
-  manualStatus: text("manual_status"), // 記帳這邊手動標記：matched（已人工確認）| ignored（不需入帳）
+  manualStatus: text("manual_status"), // 記帳這邊手動標記：matched（已人工確認）| ignored（不需入帳）| received（已確認收款並入帳）
   manualNote: text("manual_note"),
 });
 

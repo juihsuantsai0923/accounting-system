@@ -53,6 +53,8 @@ export interface CourseIncomeInput {
   years: CourseYears;
   hasCoupon: boolean;
   referral: { type: RecipientType; recipientId: number } | null;
+  /** 官網訂單入帳用：直接用官網實付金額當入帳金額（不再用原價×折數−優惠碼推算） */
+  amountOverride?: number;
 }
 
 export interface DistItem {
@@ -99,7 +101,7 @@ export async function computeCourseIncome(db: any, input: CourseIncomeInput) {
   const discountTier = computeDiscountTier(settings.baseDiscount, input.years);
   const price = Math.round(originalPrice * discountTier);
 
-  const amount = price - (input.hasCoupon ? settings.couponDiscount : 0);
+  const amount = input.amountOverride ?? price - (input.hasCoupon ? settings.couponDiscount : 0);
   if (amount <= 0) throw new CourseIncomeError("計算出的入帳金額不合理，請檢查課程原價、折數與優惠碼折抵設定");
 
   const netForSplit = amount - (input.referral ? settings.referralBonus : 0);

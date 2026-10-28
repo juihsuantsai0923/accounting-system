@@ -14,6 +14,7 @@ import {
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { recalculateBalance, recalculateMainLedgerBalance, writeAudit } from "../ledger";
 import { computeCourseIncome, computeTutoringIncome, computeBookIncome, CourseIncomeError, type DistItem } from "../revenueCalc";
+import { combineIncome, type IncomePart } from "../combineIncome";
 
 const referralInput = z
   .object({
@@ -60,10 +61,10 @@ async function resolveCategoryName(db: any, type: "income" | "expense", category
  * 寫入一筆收入：母記帳表記全額，distributions 逐筆寫進分配表與個人子記帳表，
  * 沒有分出去的部分就是留給公司的公積金。給線上課程、小班家教、書籍共用。
  */
-async function insertIncome(
+export async function insertIncome(
   db: any,
   userId: number,
-  entry: { itemName: string; categoryId: number; categoryName: string; amount: number; note?: string; incomeSource: string },
+  entry: { itemName: string; categoryId: number; categoryName: string; amount: number; note?: string; incomeSource: string; breakdown?: string | null },
   distributions: DistItem[],
   personalItemName: (d: DistItem) => string
 ) {
@@ -126,6 +127,7 @@ export const mainLedgerRouter = router({
         note: mainLedger.note,
         attachmentUrl: mainLedger.attachmentUrl,
         incomeSource: mainLedger.incomeSource,
+        breakdown: mainLedger.breakdown,
         salaryTeacherId: expenseTypes.teacherId,
         salarySalespersonId: expenseTypes.salespersonId,
         editedBy: mainLedger.editedBy,
@@ -294,25 +296,45 @@ export const mainLedgerRouter = router({
       }
     }),
 
-  /** 小班家教入帳：母記帳表記實收全額，扣掉公積金比例後全部進主理教師子記帳表 */
+  /**
+   * 小班家教入帳：可以一次勾好幾門課，合成「一筆」母記帳表收入（金額加總）；
+   * 每門課各自扣公積金比例後，分給該課的主理教師（子記帳表每門課一行）。
+   */
   createTutoringIncome: staffProcedure
-    .input(z.object({ courseId: z.number(), amount: z.number().int(), note: z.string().optional() }))
+    .input(
+      z.object({
+        items: z.array(z.object({ courseId: z.number(), amount: z.number().int() })).min(1).max(20),
+        note: z.string().optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
-      let result;
-      try {
-        result = await computeTutoringIncome(ctx.db, input);
-      } catch (e) {
-        mapCourseIncomeError(e);
+      const parts: IncomePart[] = [];
+      for (const it of input.items) {
+        let r;
+        try {
+          r = await computeTutoringIncome(ctx.db, it);
+        } catch (e) {
+          mapCourseIncomeError(e);
+        }
+        parts.push({
+          source: "tutoring",
+          name: r!.course.name,
+          categoryId: r!.course.id,
+          categoryName: "小班家教",
+          amount: r!.amount,
+          distributions: r!.distributions,
+          personalLabel: r!.course.name,
+        });
       }
-      const { course, amount, distributions } = result!;
+      const c = combineIncome(parts);
       const entry = await insertIncome(
         ctx.db,
         ctx.user.id,
-        { itemName: course.name, categoryId: course.id, categoryName: "小班家教", amount, note: input.note, incomeSource: "tutoring" },
-        distributions,
-        (d) => `${course.name}（${d.itemNameSuffix}）`
+        { itemName: c.itemName, categoryId: c.categoryId, categoryName: c.categoryName, amount: c.amount, note: input.note, incomeSource: c.incomeSource, breakdown: c.breakdown },
+        c.distributions,
+        (d) => d.itemNameSuffix
       );
-      return { entry, breakdown: result };
+      return { entry, reserve: c.reserve };
     }),
 
   /** 書籍：只計算、不寫入，帶出定價小計、優惠碼折扣與建議實收金額 */

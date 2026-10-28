@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { trpc, API_BASE } from "../lib/trpc";
 import { useAuth, canManage } from "../lib/auth";
+import RecordOrdersDialog from "../components/RecordOrdersDialog";
 
 function fmt(n: number) {
   return n < 0 ? `−NT$${Math.abs(n).toLocaleString()}` : `NT$${n.toLocaleString()}`;
@@ -23,6 +24,8 @@ const RESULT: Record<string, { label: string; icon: string; cls: string }> = {
   ignored: { label: "不需入帳", icon: "–", cls: "bg-slate-100 text-slate-500" },
 };
 const NEEDS_ACTION = new Set(["missing", "probable", "mismatch", "matched_gross"]);
+/** 可以勾選「確認入帳」的：待付款（應收）、官網已付款但記帳找不到 */
+const RECORDABLE = new Set(["receivable", "missing"]);
 
 type Filter = "action" | "receivable" | "ok" | "closed" | "all";
 const FILTERS: { key: Filter; label: string; test: (r: string) => boolean }[] = [
@@ -165,12 +168,25 @@ export default function ReconcilePage() {
   const [filter, setFilter] = useState<Filter>("action");
   const [params, setParams] = useSearchParams();
   const justSynced = params.get("synced") === "1";
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [doneMsg, setDoneMsg] = useState<string | null>(null);
 
   const data = query.data;
   const orders = data?.orders ?? [];
   const count = (f: Filter) => orders.filter((o: any) => FILTERS.find((x) => x.key === f)!.test(o.result)).length;
   const visible = orders.filter((o: any) => FILTERS.find((x) => x.key === filter)!.test(o.result));
   const manage = canManage(user?.role);
+  const recordable = visible.filter((o: any) => RECORDABLE.has(o.result));
+  const selectedOrders = orders.filter((o: any) => selected.has(o.orderNo) && RECORDABLE.has(o.result));
+  const selectedTotal = selectedOrders.reduce((s: number, o: any) => s + o.total, 0);
+  function toggle(no: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(no) ? next.delete(no) : next.add(no);
+      return next;
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -187,6 +203,15 @@ export default function ReconcilePage() {
         <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 flex justify-between">
           <span>✓ 官網訂單已同步，下面是最新的對帳結果。</span>
           <button className="text-emerald-700 underline" onClick={() => setParams({})}>
+            關閉
+          </button>
+        </div>
+      )}
+
+      {doneMsg && (
+        <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 flex justify-between">
+          <span>✓ {doneMsg}</span>
+          <button className="text-emerald-700 underline" onClick={() => setDoneMsg(null)}>
             關閉
           </button>
         </div>
@@ -224,10 +249,43 @@ export default function ReconcilePage() {
             </button>
           ))}
         </div>
+        {manage && recordable.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3 bg-brand-50 rounded-lg px-3 py-2 text-sm">
+            <span className="text-brand-800">
+              {selectedOrders.length ? `已選 ${selectedOrders.length} 張，官網實付合計 ${fmt(selectedTotal)}` : "勾選已經收到錢的訂單，就能一次入帳"}
+            </span>
+            <button className="btn-primary" disabled={!selectedOrders.length} onClick={() => setDialogOpen(true)}>
+              確認入帳（已收到錢）
+            </button>
+            {selectedOrders.length > 0 && (
+              <button className="text-brand-700 underline" onClick={() => setSelected(new Set())}>
+                全部取消
+              </button>
+            )}
+          </div>
+        )}
         <div className="table-wrap">
           <table className="data-table">
             <thead>
               <tr>
+                {manage && (
+                  <th className="w-8">
+                    {recordable.length > 0 && (
+                      <input
+                        type="checkbox"
+                        aria-label="全選可入帳的訂單"
+                        checked={recordable.every((o: any) => selected.has(o.orderNo))}
+                        onChange={(e) =>
+                          setSelected((prev) => {
+                            const next = new Set(prev);
+                            recordable.forEach((o: any) => (e.target.checked ? next.add(o.orderNo) : next.delete(o.orderNo)));
+                            return next;
+                          })
+                        }
+                      />
+                    )}
+                  </th>
+                )}
                 <th>下單時間</th>
                 <th>訂單</th>
                 <th>品項</th>
@@ -242,7 +300,14 @@ export default function ReconcilePage() {
               {visible.map((o: any) => {
                 const r = RESULT[o.result];
                 return (
-                  <tr key={o.orderNo}>
+                  <tr key={o.orderNo} className={selected.has(o.orderNo) ? "bg-brand-50/50" : undefined}>
+                    {manage && (
+                      <td>
+                        {RECORDABLE.has(o.result) && (
+                          <input type="checkbox" aria-label={`選取 ${o.buyer} 的訂單`} checked={selected.has(o.orderNo)} onChange={() => toggle(o.orderNo)} />
+                        )}
+                      </td>
+                    )}
                     <td className="whitespace-nowrap">{fmtTime(o.orderedAt)}</td>
                     <td className="whitespace-nowrap">
                       <div className="font-medium">{o.buyer}</div>
@@ -281,7 +346,9 @@ export default function ReconcilePage() {
                     </td>
                     {manage && (
                       <td className="whitespace-nowrap space-x-1">
-                        {o.manualStatus ? (
+                        {o.manualStatus === "received" ? (
+                          <span className="text-xs text-slate-400">已確認收款</span>
+                        ) : o.manualStatus ? (
                           <button className="btn-secondary" onClick={() => setManual.mutate({ orderNo: o.orderNo, status: null })}>
                             取消標記
                           </button>
@@ -318,7 +385,7 @@ export default function ReconcilePage() {
               })}
               {visible.length === 0 && (
                 <tr>
-                  <td colSpan={manage ? 8 : 7} className="text-center text-slate-400 py-6">
+                  <td colSpan={manage ? 9 : 7} className="text-center text-slate-400 py-6">
                     {filter === "action" ? "沒有需要處理的訂單 ✓" : "沒有訂單"}
                   </td>
                 </tr>
@@ -327,6 +394,18 @@ export default function ReconcilePage() {
           </table>
         </div>
       </div>
+
+      {dialogOpen && (
+        <RecordOrdersDialog
+          orderNos={selectedOrders.map((o: any) => o.orderNo)}
+          onClose={() => setDialogOpen(false)}
+          onDone={(msg) => {
+            setDialogOpen(false);
+            setSelected(new Set());
+            setDoneMsg(msg);
+          }}
+        />
+      )}
 
       {(data?.offline.length ?? 0) > 0 && (
         <div className="card space-y-2">

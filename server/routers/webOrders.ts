@@ -3,8 +3,38 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, staffProcedure, adminProcedure } from "../trpc";
 import { courses, integrationKeys, mainLedger, webOrders } from "../schema";
 import { SYNC_KEY_NAME, newSyncKey, sha256Hex } from "../webOrdersSync";
-import { asc, eq, isNull } from "drizzle-orm";
+import { asc, eq, inArray, isNull } from "drizzle-orm";
 import { writeAudit } from "../ledger";
+import { insertIncome } from "./mainLedger";
+import { loadCatalog, planOrder, type LineOverride } from "../webOrderRecord";
+
+const overridesInput = z
+  .array(
+    z.object({
+      orderNo: z.string(),
+      idx: z.number().int().min(0),
+      kind: z.enum(["tutoring", "book", "skip"]),
+      id: z.number().optional(),
+    })
+  )
+  .default([]);
+const recordInput = z.object({ orderNos: z.array(z.string()).min(1).max(50), overrides: overridesInput });
+
+async function planOrders(db: any, input: z.infer<typeof recordInput>) {
+  const rows = await db.select().from(webOrders).where(inArray(webOrders.orderNo, input.orderNos));
+  const catalog = await loadCatalog(db);
+  const plans = [];
+  for (const no of input.orderNos) {
+    const order = rows.find((r: any) => r.orderNo === no);
+    if (!order) throw new TRPCError({ code: "NOT_FOUND", message: `找不到訂單 ${no}` });
+    const ov: Record<number, LineOverride> = {};
+    for (const o of input.overrides.filter((x) => x.orderNo === no)) {
+      ov[o.idx] = o.kind === "skip" ? { kind: "skip" } : { kind: o.kind, id: o.id ?? 0 };
+    }
+    plans.push(await planOrder(db, order, ov, catalog));
+  }
+  return plans;
+}
 
 const DAY = 24 * 3600 * 1000;
 /** 股東投入（例如創始基金）不是賣東西的收入，不跟官網訂單對 */
@@ -48,7 +78,8 @@ export const webOrdersRouter = router({
     const result = orders.map((o: any) => {
       const items: OrderItem[] = JSON.parse(o.items);
       const base = { ...o, items, ledgerIds: [] as number[], ledgerAmount: 0, message: "" };
-      const paid = o.tab === "completed" || (o.tab === "pending" && o.statusLabel !== "待付款");
+      // received＝在記帳系統按過「確認入帳（已收到錢）」，官網還沒改狀態也當已付款
+      const paid = o.tab === "completed" || (o.tab === "pending" && o.statusLabel !== "待付款") || o.manualStatus === "received";
 
       // 先把可能對應的記帳記錄配掉（就算手動標記，也要避免同一筆記帳被別張訂單用）
       let picked: any[] = [];
@@ -149,6 +180,31 @@ export const webOrdersRouter = router({
       .onConflictDoUpdate({ target: integrationKeys.name, set: { keyHash, createdAt: now, lastUsedAt: null } });
     await writeAudit(ctx.db, ctx.user.id, "update", "integrationKey", 0, null, { name: SYNC_KEY_NAME, createdAt: now });
     return { key };
+  }),
+
+  /** 官網訂單入帳預覽：每張訂單會拆成哪幾筆、各給誰多少（不寫入） */
+  previewRecord: staffProcedure.input(recordInput).query(async ({ ctx, input }) => {
+    const plans = await planOrders(ctx.db, input);
+    return plans;
+  }),
+
+  /** 確認入帳（已收到錢）：每張訂單記成母記帳表一筆；全部訂單都沒問題才寫入，寫完把訂單標成 received */
+  recordOrders: staffProcedure.input(recordInput).mutation(async ({ ctx, input }) => {
+    const plans = await planOrders(ctx.db, input);
+    const bad = plans.filter((p) => p.errors.length);
+    if (bad.length) throw new TRPCError({ code: "BAD_REQUEST", message: bad.map((p) => `${p.buyer}（${p.orderNo}）：${p.errors[0]}`).join("；") });
+    for (const p of plans) {
+      const c = p.combined!;
+      await insertIncome(
+        ctx.db,
+        ctx.user.id,
+        { itemName: c.itemName, categoryId: c.categoryId, categoryName: c.categoryName, amount: c.amount, note: c.note, incomeSource: c.incomeSource, breakdown: c.breakdown },
+        c.distributions,
+        (d) => d.itemNameSuffix
+      );
+      await ctx.db.update(webOrders).set({ manualStatus: "received", manualNote: null }).where(eq(webOrders.orderNo, p.orderNo));
+    }
+    return { orders: plans.length, total: plans.reduce((s, p) => s + p.recordedTotal, 0) };
   }),
 
   /** 手動標記：matched＝人工確認沒問題、ignored＝這張不需入帳、null＝取消標記 */

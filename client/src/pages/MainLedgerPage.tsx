@@ -3,6 +3,7 @@ import { trpc } from "../lib/trpc";
 import { useAuth, canManage } from "../lib/auth";
 import { downloadTextFile } from "../lib/download";
 import SearchableSelect from "../components/SearchableSelect";
+import CheckList from "../components/CheckList";
 
 function fmt(n: number) {
   return n < 0 ? `−NT$${Math.abs(n).toLocaleString()}` : `NT$${n.toLocaleString()}`;
@@ -25,8 +26,13 @@ interface BookLine {
   qty: string;
 }
 
-function newBookLine(): BookLine {
-  return { key: `${Date.now()}-${Math.random()}`, bookId: "", qty: "1" };
+function newBookLine(bookId: number | "" = ""): BookLine {
+  return { key: `${Date.now()}-${Math.random()}`, bookId, qty: "1" };
+}
+
+interface TutorRow {
+  courseId: number;
+  amount: string;
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -34,6 +40,7 @@ const SOURCE_LABELS: Record<string, string> = {
   tutoring: "小班家教",
   book: "書籍",
   other: "其他收入",
+  mixed: "多項收入",
 };
 
 const BOOK_KIND_LABELS: Record<string, string> = { book: "講義", workbook: "刷題本", bundle: "組合包", notebook: "筆記本" };
@@ -138,12 +145,12 @@ export default function MainLedgerPage() {
   const [incomeMode, setIncomeMode] = useState<IncomeMode>("course");
 
   // 小班家教
-  const [tutorCourseId, setTutorCourseId] = useState<number | "">("");
-  const [tutorAmount, setTutorAmount] = useState("");
+  const [tutorRows, setTutorRows] = useState<TutorRow[]>([]);
+  const [tutorSaving, setTutorSaving] = useState(false);
   const [tutorNote, setTutorNote] = useState("");
 
   // 書籍（含筆記本）
-  const [bookLines, setBookLines] = useState<BookLine[]>([newBookLine()]);
+  const [bookLines, setBookLines] = useState<BookLine[]>([]);
   const [bookCouponId, setBookCouponId] = useState<number | "">("");
   const [bookAmount, setBookAmount] = useState("");
   const [bookAmountEdited, setBookAmountEdited] = useState(false);
@@ -232,25 +239,48 @@ export default function MainLedgerPage() {
   const tutoringCourses = (coursesQuery.data ?? []).filter((c: any) => c.category === "tutoring");
   const onlineCourses = (coursesQuery.data ?? []).filter((c: any) => c.category !== "tutoring");
   const tutoringRate = settingsQuery.data?.settings.tutoringReserveRate ?? 0.1;
-  const tutorCourse: any = tutoringCourses.find((c: any) => c.id === tutorCourseId);
-  const tutorAmountNum = parseInt(tutorAmount || "0", 10) || 0;
-  const tutorReserve = Math.round(tutorAmountNum * tutoringRate);
-  const tutorTeacherShare = tutorAmountNum - tutorReserve;
+  const courseById = new Map((coursesQuery.data ?? []).map((c: any) => [c.id, c]));
+  const tutorCalc = tutorRows.map((r) => {
+    const course: any = courseById.get(r.courseId);
+    const amount = parseInt(r.amount || "0", 10) || 0;
+    const reserve = Math.round(amount * tutoringRate);
+    return { ...r, course, amountNum: amount, reserve, teacherShare: amount - reserve };
+  });
+  const tutorTotal = tutorCalc.reduce((s, r) => s + r.amountNum, 0);
+  const tutorReserveTotal = tutorCalc.reduce((s, r) => s + r.reserve, 0);
 
+  function toggleTutorCourse(id: number) {
+    setTutorRows((prev) =>
+      prev.some((r) => r.courseId === id)
+        ? prev.filter((r) => r.courseId !== id)
+        : [...prev, { courseId: id, amount: String((courseById.get(id) as any)?.originalPrice ?? "") }]
+    );
+  }
+
+  /** 勾幾門課都只記成一筆；每門課的分潤各自給該課主理教師 */
   async function handleConfirmTutoring() {
     setError(null);
     setSuccessMsg(null);
-    if (!tutorCourse) return setError("請選擇小班家教課程");
-    if (!tutorCourse.teacherId) return setError("這門課還沒設定主理教師，請先到管理面板「課程管理」設定");
-    if (tutorAmountNum <= 0) return setError("請填寫實收金額");
+    if (!tutorCalc.length) return setError("請至少勾一門小班家教課程");
+    const noTeacher = tutorCalc.find((r) => !r.course?.teacherId);
+    if (noTeacher) return setError(`「${noTeacher.course?.name}」還沒設定主理教師，請先到管理面板「課程管理」設定`);
+    const noAmount = tutorCalc.find((r) => r.amountNum <= 0);
+    if (noAmount) return setError(`請填「${noAmount.course?.name}」的實收金額`);
+    setTutorSaving(true);
     try {
-      await createTutoringIncomeMutation.mutateAsync({ courseId: tutorCourse.id, amount: tutorAmountNum, note: tutorNote || undefined });
-      setTutorCourseId("");
-      setTutorAmount("");
+      await createTutoringIncomeMutation.mutateAsync({
+        items: tutorCalc.map((r) => ({ courseId: r.courseId, amount: r.amountNum })),
+        note: tutorNote || undefined,
+      });
+      setTutorRows([]);
       setTutorNote("");
-      setSuccessMsg(`小班家教已入帳：公積金 ${fmt(tutorReserve)}，${nameOf("teacher", tutorCourse.teacherId)} ${fmt(tutorTeacherShare)}。`);
+      setSuccessMsg(`小班家教已入帳一筆 ${fmt(tutorTotal)}：公積金 ${fmt(tutorReserveTotal)}，${tutorCalc
+        .map((r) => `${nameOf("teacher", r.course.teacherId)} ${fmt(r.teacherShare)}`)
+        .join("、")}。`);
     } catch (err: any) {
       setError(err?.message ?? "入帳失敗");
+    } finally {
+      setTutorSaving(false);
     }
   }
 
@@ -273,7 +303,7 @@ export default function MainLedgerPage() {
   }
 
   function resetBookForm() {
-    setBookLines([newBookLine()]);
+    setBookLines([]);
     setBookCouponId("");
     setBookAmount("");
     setBookAmountEdited(false);
@@ -800,59 +830,60 @@ export default function MainLedgerPage() {
                   <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
                     小班家教：填實際收到的學費。{Math.round(tutoringRate * 1000) / 10}% 留給公積金，其餘全部計入該課程主理教師的子記帳表；不套折數、優惠碼、推廣抽成與團隊獎金。
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <label className="label">課程</label>
-                      <SearchableSelect
-                        options={tutoringCourses.map((c: any) => ({ id: c.id, name: c.name }))}
-                        value={tutorCourseId}
-                        onChange={(id) => setTutorCourseId(id)}
-                        placeholder="搜尋小班家教課程..."
+                  <div>
+                    <label className="label">課程（可以複選，一次勾好幾門）</label>
+                    {tutoringCourses.length === 0 ? (
+                      <p className="text-xs text-amber-600 mt-1">還沒有小班家教課程，請到管理面板「課程管理」新增，類別選「小班家教」。</p>
+                    ) : (
+                      <CheckList
+                        items={tutoringCourses.map((c: any) => ({
+                          id: c.id,
+                          name: c.name,
+                          hint: `${c.teacherId ? nameOf("teacher", c.teacherId) : "⚠ 未設主理教師"}${c.originalPrice ? `・${fmt(c.originalPrice)}` : ""}`,
+                        }))}
+                        selected={new Set(tutorRows.map((r) => r.courseId))}
+                        onToggle={toggleTutorCourse}
                       />
-                      {tutoringCourses.length === 0 && (
-                        <p className="text-xs text-amber-600 mt-1">還沒有小班家教課程，請到管理面板「課程管理」新增，類別選「小班家教」。</p>
-                      )}
-                      {tutorCourse && (
-                        <p className="text-xs text-slate-400 mt-1">
-                          {tutorCourse.teacherId ? `主理教師：${nameOf("teacher", tutorCourse.teacherId)}` : "⚠ 尚未設定主理教師"}
-                          {tutorCourse.originalPrice ? ` ・ 定價：${fmt(tutorCourse.originalPrice)}` : ""}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="label">實收金額</label>
-                      <input
-                        className="input"
-                        inputMode="numeric"
-                        placeholder="例如 27000"
-                        value={tutorAmount}
-                        onChange={(e) => setTutorAmount(e.target.value.replace(/[^\d]/g, ""))}
-                      />
-                    </div>
-                    <div>
-                      <label className="label">備註（選填，例如學生姓名）</label>
-                      <input className="input" value={tutorNote} onChange={(e) => setTutorNote(e.target.value)} />
-                    </div>
+                    )}
                   </div>
-                  {tutorCourse && tutorAmountNum > 0 && (
-                    <div className="border border-slate-200 rounded-lg p-4 text-sm text-slate-700 space-y-1">
-                      <div>母記帳表記錄：<span className="font-medium">{fmt(tutorAmountNum)}</span></div>
-                      <div>
-                        公積金（{Math.round(tutoringRate * 1000) / 10}%）：<span className="font-medium">{fmt(tutorReserve)}</span>
+                  {tutorCalc.length > 0 && (
+                    <div className="border border-slate-200 rounded-lg p-3 space-y-2">
+                      <div className="grid grid-cols-12 gap-2 text-xs text-slate-500 px-1">
+                        <div className="col-span-5">課程</div>
+                        <div className="col-span-3">實收金額</div>
+                        <div className="col-span-4">分配</div>
                       </div>
-                      <div>
-                        {tutorCourse.teacherId ? nameOf("teacher", tutorCourse.teacherId) : "主理教師"}：
-                        <span className="font-medium">{fmt(tutorTeacherShare)}</span>
+                      {tutorCalc.map((r) => (
+                        <div key={r.courseId} className="grid grid-cols-12 gap-2 items-center text-sm">
+                          <div className="col-span-5">{r.course?.name}</div>
+                          <div className="col-span-3">
+                            <input
+                              className="input"
+                              inputMode="numeric"
+                              value={r.amount}
+                              onChange={(e) =>
+                                setTutorRows((prev) =>
+                                  prev.map((x) => (x.courseId === r.courseId ? { ...x, amount: e.target.value.replace(/[^\d]/g, "") } : x))
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="col-span-4 text-xs text-slate-500">
+                            公積金 {fmt(r.reserve)}・{r.course?.teacherId ? nameOf("teacher", r.course.teacherId) : "主理教師"} {fmt(r.teacherShare)}
+                          </div>
+                        </div>
+                      ))}
+                      <div className="text-sm text-slate-700 border-t border-slate-100 pt-2">
+                        母記帳表記一筆 <span className="font-medium">{fmt(tutorTotal)}</span>・公積金 {fmt(tutorReserveTotal)}
                       </div>
                     </div>
                   )}
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={handleConfirmTutoring}
-                    disabled={createTutoringIncomeMutation.isPending}
-                  >
-                    {createTutoringIncomeMutation.isPending ? "入帳中..." : "確認入帳"}
+                  <div className="sm:w-1/2">
+                    <label className="label">備註（選填，例如學生姓名；每筆都會寫上）</label>
+                    <input className="input" value={tutorNote} onChange={(e) => setTutorNote(e.target.value)} />
+                  </div>
+                  <button type="button" className="btn-primary" onClick={handleConfirmTutoring} disabled={tutorSaving}>
+                    {tutorSaving ? "入帳中..." : "確認入帳"}
                   </button>
                 </>
               ) : incomeMode === "book" ? (
@@ -861,54 +892,55 @@ export default function MainLedgerPage() {
                     書籍（含筆記本、組合包）：選書和數量會自動帶出定價，選了優惠碼會自動折扣。實收金額可以改（例如現場議價），書籍收入全數留給公積金，不分給任何人。書目和優惠碼在管理面板「書籍管理」「優惠碼管理」維護。
                   </div>
                   <div className="space-y-2">
-                    {bookLines.map((l, i) => {
-                      const b: any = l.bookId === "" ? null : bookById.get(Number(l.bookId));
-                      const qty = parseInt(l.qty || "0", 10) || 0;
-                      return (
-                        <div key={l.key} className="grid grid-cols-12 gap-2 items-center">
-                          <div className="col-span-12 sm:col-span-6">
-                            {i === 0 && <label className="label">書目</label>}
-                            <SearchableSelect
-                              options={activeBooks.map((x: any) => ({
-                                id: x.id,
-                                name: `${x.name}（${BOOK_KIND_LABELS[x.kind] ?? x.kind}・${fmt(x.price)}）`,
-                              }))}
-                              value={l.bookId}
-                              onChange={(id) => updateBookLine(l.key, { bookId: id })}
-                              placeholder="搜尋書名..."
-                            />
-                          </div>
-                          <div className="col-span-4 sm:col-span-2">
-                            {i === 0 && <label className="label">數量</label>}
-                            <input
-                              className="input"
-                              inputMode="numeric"
-                              value={l.qty}
-                              onChange={(e) => updateBookLine(l.key, { qty: e.target.value.replace(/[^\d]/g, "") })}
-                            />
-                          </div>
-                          <div className="col-span-5 sm:col-span-2 text-sm text-slate-600">
-                            {i === 0 && <label className="label">小計</label>}
-                            <div className="py-2">{b ? fmt(b.price * qty) : "-"}</div>
-                          </div>
-                          <div className="col-span-3 sm:col-span-2">
-                            {i === 0 && <label className="label">&nbsp;</label>}
-                            {bookLines.length > 1 && (
-                              <button
-                                type="button"
-                                className="btn-danger"
-                                onClick={() => setBookLines((prev) => prev.filter((x) => x.key !== l.key))}
-                              >
-                                移除
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    <button type="button" className="btn-secondary" onClick={() => setBookLines((prev) => [...prev, newBookLine()])}>
-                      + 再加一本
-                    </button>
+                    <label className="label">書目（可以複選，勾好再改數量）</label>
+                    <CheckList
+                      items={activeBooks.map((x: any) => ({
+                        id: x.id,
+                        name: x.name,
+                        hint: fmt(x.price),
+                        group: BOOK_KIND_LABELS[x.kind] ?? x.kind,
+                      }))}
+                      selected={new Set(bookLines.map((l) => Number(l.bookId)))}
+                      onToggle={(id) =>
+                        setBookLines((prev) =>
+                          prev.some((l) => l.bookId === id) ? prev.filter((l) => l.bookId !== id) : [...prev, newBookLine(id)]
+                        )
+                      }
+                      placeholder="打字篩選書名，例如 物理、刷題本..."
+                    />
+                    {bookLines.length > 0 && (
+                      <div className="border border-slate-200 rounded-lg p-3 space-y-2">
+                        {bookLines.map((l) => {
+                          const b: any = bookById.get(Number(l.bookId));
+                          const qty = parseInt(l.qty || "0", 10) || 0;
+                          return (
+                            <div key={l.key} className="grid grid-cols-12 gap-2 items-center text-sm">
+                              <div className="col-span-12 sm:col-span-6">{b?.name}</div>
+                              <div className="col-span-4 sm:col-span-2 flex items-center gap-1">
+                                <span className="text-xs text-slate-400">×</span>
+                                <input
+                                  className="input"
+                                  inputMode="numeric"
+                                  aria-label={`${b?.name} 數量`}
+                                  value={l.qty}
+                                  onChange={(e) => updateBookLine(l.key, { qty: e.target.value.replace(/[^\d]/g, "") })}
+                                />
+                              </div>
+                              <div className="col-span-5 sm:col-span-2 text-slate-600">{b ? fmt(b.price * qty) : "-"}</div>
+                              <div className="col-span-3 sm:col-span-2 text-right">
+                                <button
+                                  type="button"
+                                  className="text-xs text-red-600 hover:underline"
+                                  onClick={() => setBookLines((prev) => prev.filter((x) => x.key !== l.key))}
+                                >
+                                  移除
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>

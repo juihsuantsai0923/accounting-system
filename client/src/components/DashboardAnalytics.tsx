@@ -23,6 +23,7 @@ import {
   fmt,
   fmtShort,
   inferSource,
+  expandIncome,
   monthOf,
   niceTicks,
   tooltipStyle,
@@ -43,6 +44,7 @@ export interface Entry {
   amount: number;
   note: string | null;
   incomeSource: string | null;
+  breakdown?: string | null;
   distributed: number;
   salaryTeacherId: number | null;
   salarySalespersonId: number | null;
@@ -266,9 +268,9 @@ export function RevenueRankingChart({
   const rows = useMemo(() => {
     const totals = new Map<string, number>();
     const add = (k: string, v: number) => totals.set(k, (totals.get(k) ?? 0) + v);
-    for (const e of entries) {
+    for (const e of entries.flatMap((x) => expandIncome(x, courseNames))) {
       if (!isRevenue(e) || !inPeriod(e.createdAt, period)) continue;
-      const src = inferSource(e, courseNames);
+      const src = e.source;
       if (src === "tutoring") add(e.itemName, e.amount);
       else if (src === "book" && e.incomeSource === "book") {
         const parts = e.itemName.split("、").map((p) => {
@@ -327,7 +329,8 @@ export function PrepaidTutoringCard({ entries, courses }: { entries: Entry[]; co
     .filter((c) => c.category === "tutoring")
     .map((c) => {
       const received = entries
-        .filter((e) => e.type === "income" && e.incomeSource === "tutoring" && e.categoryId === c.id)
+        .flatMap((e) => (e.type === "income" ? expandIncome(e, new Set()) : []))
+        .filter((e) => e.incomeSource === "tutoring" && e.categoryId === c.id)
         .reduce((s, e) => s + e.amount, 0);
       let progress: number | null = null;
       if (c.startDate && c.endDate) {
@@ -479,7 +482,7 @@ export function MonthlyReportButton({
   }, [entries, timeline]);
   const [month, setMonth] = useState("");
   const selected = month || months[0] || thisMonthKey();
-  const SOURCE: Record<string, string> = { course: "線上課程", tutoring: "小班家教", book: "書籍", other: "其他收入" };
+  const SOURCE: Record<string, string> = { course: "線上課程", tutoring: "小班家教", book: "書籍", other: "其他收入", mixed: "多項收入" };
 
   function download() {
     const rows = entries.filter((e) => monthOf(e.createdAt) === selected);
