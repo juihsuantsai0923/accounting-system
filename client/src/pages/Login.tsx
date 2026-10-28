@@ -26,7 +26,7 @@ function writeAccounts(list: string[]) {
 
 function GoogleMark() {
   return (
-    <svg viewBox="0 0 48 48" className="h-4 w-4 shrink-0" aria-hidden>
+    <svg viewBox="0 0 48 48" className="h-3.5 w-3.5 shrink-0" aria-hidden>
       <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.3l7.9 6.1C12.4 13.7 17.7 9.5 24 9.5z" />
       <path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-16.6z" />
       <path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C.9 16.6 0 20.2 0 24s.9 7.4 2.6 10.7l7.9-6.1z" />
@@ -91,43 +91,43 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-brand-50 flex flex-col items-center px-4 py-10">
-      <div className="h-32 w-32 bg-white flex items-center justify-center shadow-sm">
-        <img src="/leviax-logo.png" alt="澈點科學" className="h-24 w-24 object-contain" />
+    <div className="min-h-screen bg-brand-50 flex flex-col items-center px-4 py-8">
+      <div className="h-20 w-20 bg-white flex items-center justify-center shadow-sm">
+        <img src="/leviax-logo.png" alt="澈點科學" className="h-14 w-14 object-contain" />
       </div>
-      <h1 className="mt-8 text-4xl text-brand-700 tracking-[0.15em]">澈點科學</h1>
-      <p className="mt-2 text-sm text-brand-700/70 tracking-[0.4em]">Leviax Lab</p>
+      <h1 className="mt-5 text-2xl text-brand-700 tracking-[0.15em]">澈點科學財務系統</h1>
+      <p className="mt-1 text-xs text-brand-700/70 tracking-[0.4em]">Leviax Lab</p>
 
-      <div className="mt-12 w-full max-w-lg bg-white shadow-card-hover px-6 sm:px-11 py-12">
-        <h2 className="text-center text-2xl text-brand-700 tracking-wider">歡迎回來</h2>
-        <p className="mt-3 text-center text-sm text-slate-500 tracking-wide">登入後即可查看帳本、管理收支</p>
+      <div className="mt-7 w-full max-w-[22rem] bg-white shadow-card-hover px-5 sm:px-7 py-7">
+        <h2 className="text-center text-lg text-brand-700 tracking-wider">歡迎回來</h2>
+        <p className="mt-1.5 text-center text-xs text-slate-500 tracking-wide">登入後即可查看帳本、管理收支</p>
 
-        {error && <div className="mt-6 text-sm text-red-600 bg-red-50 px-3 py-2">{error}</div>}
-        {loading && <p className="mt-6 text-center text-sm text-slate-500">登入中...</p>}
+        {error && <div className="mt-4 text-xs text-red-600 bg-red-50 px-3 py-2">{error}</div>}
+        {loading && <p className="mt-4 text-center text-xs text-slate-500">登入中...</p>}
 
         {GOOGLE_CLIENT_ID && (
           <>
-            <p className="mt-10 text-center text-xs text-slate-400 tracking-[0.3em]">選擇帳號登入</p>
-            <div className="mt-6 space-y-3">
+            <p className="mt-6 text-center text-[11px] text-slate-400 tracking-[0.3em]">選擇帳號登入</p>
+            <div className="mt-3.5 space-y-2">
               {accounts.map((a) => (
-                <div key={a} className="flex items-center gap-3">
+                <div key={a} className="flex items-center gap-2">
                   <div className="flex-1 min-w-0">
                     <button
                       type="button"
                       disabled={loading}
                       onClick={() => startGoogleLogin(a)}
-                      className="w-full text-left flex items-center gap-4 bg-brand-50 border border-brand-700/10 px-5 py-4 hover:bg-brand-100 hover:border-brand-700/25 transition-colors"
+                      className="w-full text-left flex items-center gap-2.5 bg-brand-50 border border-brand-700/10 px-3 py-2.5 text-sm hover:bg-brand-100 hover:border-brand-700/25 transition-colors"
                     >
-                        <span className="h-9 w-9 shrink-0 rounded-full bg-brand-200/70 text-brand-700 font-serif flex items-center justify-center">
+                        <span className="h-6 w-6 shrink-0 text-xs rounded-full bg-brand-200/70 text-brand-700 font-serif flex items-center justify-center">
                           {a[0]?.toUpperCase()}
                         </span>
-                        <span className="flex-1 min-w-0 truncate text-brand-700">{a}</span>
+                        <span className="flex-1 min-w-0 truncate text-[13px] text-brand-700">{a}</span>
                         <GoogleMark />
                     </button>
                   </div>
                   <button
                     type="button"
-                    className="text-slate-300 hover:text-slate-500 text-lg leading-none px-1"
+                    className="text-slate-300 hover:text-slate-500 text-base leading-none px-0.5"
                     aria-label={`從這台電腦移除 ${a}`}
                     title="從這台電腦移除"
                     onClick={() => removeAccount(a)}
@@ -141,7 +141,7 @@ export default function Login() {
                   type="button"
                   disabled={loading}
                   onClick={() => startGoogleLogin()}
-                  className="w-full flex items-center justify-center gap-3 bg-brand-50 border border-brand-700/10 px-5 py-4 text-brand-700 hover:bg-brand-100 hover:border-brand-700/25 transition-colors"
+                  className="w-full flex items-center justify-center gap-2 bg-brand-50 border border-brand-700/10 px-3 py-2.5 text-sm text-brand-700 hover:bg-brand-100 hover:border-brand-700/25 transition-colors"
                 >
                   <GoogleMark />
                   使用 Google 帳號登入
@@ -150,9 +150,9 @@ export default function Login() {
             </div>
             {accounts.length > 0 && (
               <>
-                <div className="mt-6 border-t border-brand-700/10" />
-                <div className="mt-6 flex justify-center">
-                  <button type="button" disabled={loading} onClick={() => startGoogleLogin()} className="px-4 py-1 text-xs text-slate-400 hover:text-brand-700">
+                <div className="mt-4 border-t border-brand-700/10" />
+                <div className="mt-3 flex justify-center">
+                  <button type="button" disabled={loading} onClick={() => startGoogleLogin()} className="px-3 py-1 text-[11px] text-slate-400 hover:text-brand-700">
                     使用其他 Google 帳號 →
                   </button>
                 </div>
@@ -162,7 +162,7 @@ export default function Login() {
         )}
 
         {showPassword ? (
-          <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+          <form onSubmit={handleSubmit} className="mt-5 space-y-3">
             <div>
               <label className="label">帳號 Email</label>
               <input
@@ -185,14 +185,14 @@ export default function Login() {
         ) : (
           <button
             type="button"
-            className="mt-6 block mx-auto text-xs text-slate-300 hover:text-brand-700 hover:underline"
+            className="mt-4 block mx-auto text-[11px] text-slate-300 hover:text-brand-700 hover:underline"
             onClick={() => setShowPassword(true)}
           >
             改用密碼登入
           </button>
         )}
 
-        <p className="mt-10 text-center text-xs text-slate-400">僅限澈點科學團隊成員使用</p>
+        <p className="mt-6 text-center text-[11px] text-slate-400">僅限澈點科學團隊成員使用</p>
       </div>
     </div>
   );
