@@ -8,6 +8,8 @@ interface AuthUser {
   role: "super_admin" | "finance_staff" | "viewer" | "teacher_self" | "salesperson_self";
   linkedTeacherId: number | null;
   linkedSalespersonId: number | null;
+  /** 原本的角色（切換成老師身分時 role 會是 teacher_self，這裡仍是 super_admin） */
+  realRole?: string;
 }
 
 interface AuthContextValue {

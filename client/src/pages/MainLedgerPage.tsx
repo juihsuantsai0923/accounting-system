@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { trpc } from "../lib/trpc";
 import { useAuth, canManage } from "../lib/auth";
 import { downloadTextFile } from "../lib/download";
@@ -553,6 +553,9 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
     const result = await recalcMutation.mutateAsync();
     setRecalcMsg(`已重新計算完成，目前餘額為 ${fmt(result.balance)}。`);
   }
+
+  // 老師、推銷者本人看不到帳本（後端也會擋），直接回自己的儀表板
+  if (user?.role === "teacher_self" || user?.role === "salesperson_self") return <Navigate to="/" replace />;
 
   return (
     <div className="space-y-6">

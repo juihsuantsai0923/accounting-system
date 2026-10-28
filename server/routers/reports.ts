@@ -8,6 +8,7 @@ import {
   salespersonLedger,
   advancePayments,
   mainLedger,
+  ledgerDistribution,
   users,
 } from "../schema";
 import { eq, and, asc, desc, isNull } from "drizzle-orm";
@@ -171,6 +172,54 @@ export const reportsRouter = router({
     return [...(await personStatsFor(ctx.db, "teacher", teacherList)), ...(await personStatsFor(ctx.db, "salesperson", salespersonList))];
   }),
 
+  /**
+   * 全公司三個總數：總收入、總支出、公積金增減（老師也看得到，但只有這三個數字，不給明細）。
+   * 公積金增減＝每筆收入沒分給個人的部分 − 公帳支出（薪水撥款付的是本來就欠的錢，不算）。
+   */
+  companySummary: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role === "salesperson_self") throw new TRPCError({ code: "FORBIDDEN", message: "無權查看" });
+    const rows = await ctx.db.select().from(mainLedger).where(isNull(mainLedger.deletedAt));
+    const sums: { mainLedgerId: number; amount: number }[] = await ctx.db.select().from(ledgerDistribution);
+    const distributed = new Map<number, number>();
+    for (const d of sums as any[]) distributed.set(d.mainLedgerId, (distributed.get(d.mainLedgerId) ?? 0) + d.amount);
+    let totalIncome = 0;
+    let totalExpense = 0;
+    let reserveChange = 0;
+    for (const r of rows as any[]) {
+      const kept = r.amount - (distributed.get(r.id) ?? 0);
+      if (r.type === "income") {
+        totalIncome += r.amount;
+        reserveChange += kept;
+      } else {
+        totalExpense += r.amount;
+        reserveChange -= kept;
+      }
+    }
+    return { totalIncome, totalExpense, reserveChange };
+  }),
+
+  /**
+   * 個人儀表板：某位老師／推銷者的累積分潤、已發放、還沒發放，以及每月的分潤與發放金額。
+   * 本人帳號只能看自己（傳別人的 id 也會被換成自己的）。
+   */
+  personDashboard: protectedProcedure
+    .input(z.object({ recipientType: z.enum(["teacher", "salesperson"]), recipientId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      let { recipientType, recipientId } = input;
+      if (ctx.user.role === "teacher_self") {
+        if (recipientType !== "teacher" || !ctx.user.linkedTeacherId) throw new TRPCError({ code: "FORBIDDEN", message: "只能看自己的儀表板" });
+        recipientId = ctx.user.linkedTeacherId;
+      } else if (ctx.user.role === "salesperson_self") {
+        if (recipientType !== "salesperson" || !ctx.user.linkedSalespersonId) throw new TRPCError({ code: "FORBIDDEN", message: "只能看自己的儀表板" });
+        recipientId = ctx.user.linkedSalespersonId;
+      }
+      const table = recipientType === "teacher" ? teachers : salespeople;
+      const [person] = await ctx.db.select({ id: table.id, name: table.name }).from(table).where(eq(table.id, recipientId)).limit(1);
+      if (!person) throw new TRPCError({ code: "NOT_FOUND", message: "找不到這個人" });
+      const [stat] = await personStatsFor(ctx.db, recipientType, [person]);
+      return stat;
+    }),
+
   /** 教師/推銷者本人帳號無權查看全公司所有人的應付總覽，只能透過自己的子記帳表頁面看自己的餘額 */
   balanceOverview: protectedProcedure.query(async ({ ctx }) => {
     if (ctx.user.role === "teacher_self" || ctx.user.role === "salesperson_self") {
@@ -191,7 +240,7 @@ export const reportsRouter = router({
   exportMainLedgerCsv: protectedProcedure
     .input(z.object({ dateFrom: z.number().optional(), dateTo: z.number().optional() }).optional())
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role === "salesperson_self") {
+      if (ctx.user.role === "salesperson_self" || ctx.user.role === "teacher_self") {
         throw new TRPCError({ code: "FORBIDDEN", message: "無權匯出母記帳表" });
       }
       const rows = await ctx.db

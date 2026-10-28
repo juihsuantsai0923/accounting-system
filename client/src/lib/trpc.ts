@@ -8,6 +8,24 @@ export function getToken(): string | null {
   return localStorage.getItem("auth_token");
 }
 
+/** 身分切換（管理員兼老師可以選「用老師身分看」），存在這台電腦的瀏覽器 */
+const ACT_AS_KEY = "auth_act_as";
+export function getActAs(): "teacher" | null {
+  try {
+    return localStorage.getItem(ACT_AS_KEY) === "teacher" ? "teacher" : null;
+  } catch {
+    return null;
+  }
+}
+export function setActAs(v: "teacher" | null) {
+  try {
+    if (v) localStorage.setItem(ACT_AS_KEY, v);
+    else localStorage.removeItem(ACT_AS_KEY);
+  } catch {
+    /* 存不了就維持原本身分 */
+  }
+}
+
 export function setToken(token: string | null) {
   if (token) localStorage.setItem("auth_token", token);
   else localStorage.removeItem("auth_token");
@@ -25,7 +43,10 @@ export function makeTrpcClient() {
         url: `${API_BASE}/trpc`,
         headers() {
           const token = getToken();
-          return token ? { authorization: `Bearer ${token}` } : {};
+          const h: Record<string, string> = {};
+          if (token) h.authorization = `Bearer ${token}`;
+          if (getActAs()) h["x-act-as"] = getActAs()!;
+          return h;
         },
       }),
     ],

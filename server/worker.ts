@@ -10,7 +10,7 @@ import * as schema from "./schema";
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Sync-Key",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Sync-Key, X-Act-As",
   "Access-Control-Max-Age": "86400",
 };
 

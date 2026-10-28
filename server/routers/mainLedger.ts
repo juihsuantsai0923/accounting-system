@@ -111,9 +111,9 @@ export async function insertIncome(
 const bookLinesInput = z.array(z.object({ bookId: z.number(), qty: z.number().int().min(1).max(999) })).min(1);
 
 export const mainLedgerRouter = router({
-  /** 教師本人可以看母記帳表（唯讀，編輯都走 staffProcedure）；推銷者本人只能看自己的子記帳表 */
+  /** 帳本只給財務人員看；教師、推銷者本人只能看自己的子記帳表（2026-10-29 起教師也看不到帳本） */
   list: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.user.role === "salesperson_self") {
+    if (ctx.user.role === "salesperson_self" || ctx.user.role === "teacher_self") {
       throw new TRPCError({ code: "FORBIDDEN", message: "無權查看母記帳表" });
     }
     const rows = await ctx.db

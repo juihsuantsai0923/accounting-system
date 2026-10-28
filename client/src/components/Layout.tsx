@@ -2,12 +2,13 @@ import { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, ROLE_LABELS, canManage } from "../lib/auth";
 import LeviaxLogo from "./LeviaxLogo";
-import { trpc } from "../lib/trpc";
+import { trpc, getActAs, setActAs } from "../lib/trpc";
 
-function TabLink({ to, children, onClick }: { to: string; children: React.ReactNode; onClick?: () => void }) {
+function TabLink({ to, children, onClick, end }: { to: string; children: React.ReactNode; onClick?: () => void; end?: boolean }) {
   return (
     <NavLink
       to={to}
+      end={end}
       onClick={onClick}
       className={({ isActive }) =>
         `px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-150 ${
@@ -30,7 +31,7 @@ function PeopleMenu({ mobile, onNavigate }: { mobile: boolean; onNavigate: () =>
   const items = (
     <>
       {teachers.map((t: any) => (
-        <TabLink key={t.id} to={`/teacher/${t.id}`} onClick={onNavigate}>
+        <TabLink key={t.id} to={`/teacher/${t.id}/dashboard`} onClick={onNavigate}>
           {t.name}
         </TabLink>
       ))}
@@ -68,6 +69,35 @@ function PeopleMenu({ mobile, onNavigate }: { mobile: boolean; onNavigate: () =>
   );
 }
 
+/**
+ * 身分切換：管理員兼老師（例如蔡睿軒）可以選「管理員」或「老師」。
+ * 選老師時後端也照老師權限回資料，看到的跟其他老師完全一樣。
+ */
+function RoleSwitch({ compact }: { compact?: boolean }) {
+  const { user } = useAuth();
+  const utils = trpc.useUtils();
+  const navigate = useNavigate();
+  if (!user || user.realRole !== "super_admin" || !user.linkedTeacherId) return null;
+  const current = getActAs() === "teacher" ? "teacher" : "admin";
+  return (
+    <label className={`flex items-center gap-1.5 ${compact ? "text-xs" : "text-xs sm:text-sm"} text-brand-700/70`}>
+      身分
+      <select
+        className="rounded-md border border-brand-700/20 bg-white px-2 py-1 text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-100"
+        value={current}
+        onChange={async (e) => {
+          setActAs(e.target.value === "teacher" ? "teacher" : null);
+          navigate("/");
+          await utils.invalidate();
+        }}
+      >
+        <option value="admin">管理員</option>
+        <option value="teacher">老師</option>
+      </select>
+    </label>
+  );
+}
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -83,40 +113,40 @@ export default function Layout() {
 
   const closeMenu = () => setMenuOpen(false);
 
-  // 教師/推銷者人數變多之後，導覽列不再逐一列出每個人的分頁（否則手機上會排成一長串滑不完），
-  // 改成統一一個「教師」/「推銷者」入口，點進去是可以搜尋姓名的列表頁。
-  // 教師本人/推銷者本人登入時，本來就只看得到自己的資料，直接連到自己的子記帳表即可，不需要列表頁。
+  // 本人帳號（老師／推銷者）只看自己的：儀表板、我的帳本、代墊管理
+  const selfBase =
+    isTeacherSelf && user?.linkedTeacherId ? `/teacher/${user.linkedTeacherId}` : isSalespersonSelf && user?.linkedSalespersonId ? `/salesperson/${user.linkedSalespersonId}` : null;
   const navLinks = (mobile: boolean) => (
     <>
-      {!isTeacherSelf && !isSalespersonSelf && (
-        <TabLink to="/" onClick={closeMenu}>
-          儀表板
-        </TabLink>
-      )}
-      {!isTeacherSelf && !isSalespersonSelf && (
-        <TabLink to="/reconcile" onClick={closeMenu}>
-          官網對帳
-        </TabLink>
-      )}
-      {canManage(user?.role) && (
-        <TabLink to="/entry" onClick={closeMenu}>
-          手動記帳
-        </TabLink>
-      )}
-      {!isSalespersonSelf && (
-        <TabLink to="/ledger" onClick={closeMenu}>
-          帳本
-        </TabLink>
-      )}
-      {isTeacherSelf && user?.linkedTeacherId && (
-        <TabLink to={`/teacher/${user.linkedTeacherId}`} onClick={closeMenu}>
-          我的記帳表
-        </TabLink>
-      )}
-      {isSalespersonSelf && user?.linkedSalespersonId && (
-        <TabLink to={`/salesperson/${user.linkedSalespersonId}`} onClick={closeMenu}>
-          我的記帳表
-        </TabLink>
+      {selfBase ? (
+        <>
+          <TabLink to={`${selfBase}/dashboard`} onClick={closeMenu}>
+            儀表板
+          </TabLink>
+          <TabLink to={selfBase} end onClick={closeMenu}>
+            我的帳本
+          </TabLink>
+        </>
+      ) : (
+        !isTeacherSelf &&
+        !isSalespersonSelf && (
+          <>
+            <TabLink to="/" end onClick={closeMenu}>
+              儀表板
+            </TabLink>
+            <TabLink to="/reconcile" onClick={closeMenu}>
+              官網對帳
+            </TabLink>
+            {canManage(user?.role) && (
+              <TabLink to="/entry" onClick={closeMenu}>
+                手動記帳
+              </TabLink>
+            )}
+            <TabLink to="/ledger" onClick={closeMenu}>
+              帳本
+            </TabLink>
+          </>
+        )
       )}
       {!isTeacherSelf && !isSalespersonSelf && <PeopleMenu mobile={mobile} onNavigate={closeMenu} />}
       <TabLink to="/advance" onClick={closeMenu}>
@@ -127,9 +157,6 @@ export default function Layout() {
           管理面板
         </TabLink>
       )}
-      <TabLink to="/account" onClick={closeMenu}>
-        帳號設定
-      </TabLink>
     </>
   );
 
@@ -159,8 +186,9 @@ export default function Layout() {
           <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-brand-700/70 shrink-0">
             {user && (
               <>
-                <span className="hidden sm:inline">
-                  {user.name}（{ROLE_LABELS[user.role] ?? user.role}）
+                <span className="hidden sm:inline">{user.name}</span>
+                <span className="hidden sm:inline-flex">
+                  {user.realRole === "super_admin" && user.linkedTeacherId ? <RoleSwitch /> : `（${ROLE_LABELS[user.role] ?? user.role}）`}
                 </span>
                 <button
                   onClick={handleLogout}
@@ -180,8 +208,9 @@ export default function Layout() {
         {menuOpen && (
           <div className="sm:hidden border-t border-brand-700/10 px-3 py-3 flex flex-col gap-1 bg-white">
             {user && (
-              <div className="text-xs text-brand-700/60 pb-2">
-                {user.name}（{ROLE_LABELS[user.role] ?? user.role}）
+              <div className="text-xs text-brand-700/60 pb-2 flex items-center gap-3">
+                <span>{user.name}</span>
+                {user.realRole === "super_admin" && user.linkedTeacherId ? <RoleSwitch compact /> : <span>（{ROLE_LABELS[user.role] ?? user.role}）</span>}
               </div>
             )}
             {navLinks(true)}

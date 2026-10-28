@@ -3,6 +3,7 @@ import { db } from "./db";
 import { users } from "./schema";
 import { eq } from "drizzle-orm";
 import { verifyTokenWithSecret } from "./auth";
+import { applyActAs } from "./actAs";
 
 // 簽發 token 跟驗證 token 一定要用同一把密鑰，所以這裡明確算出一次，
 // 透過 ctx.jwtSecret 傳給 routers/auth.ts 簽發登入 token 時使用，
@@ -23,7 +24,7 @@ export async function createContext({ req }: CreateExpressContextOptions) {
       }
     }
   }
-  return { db, user, jwtSecret: JWT_SECRET, googleClientId: process.env.GOOGLE_CLIENT_ID ?? "" };
+  return { db, user: applyActAs(user, req.header("x-act-as")), jwtSecret: JWT_SECRET, googleClientId: process.env.GOOGLE_CLIENT_ID ?? "" };
 }
 
 export type Context = Awaited<ReturnType<typeof createContext>>;

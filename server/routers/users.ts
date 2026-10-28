@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, adminProcedure, protectedProcedure } from "../trpc";
+import { router, adminProcedure } from "../trpc";
 import { users } from "../schema";
 import { eq } from "drizzle-orm";
-import { hashPassword, comparePassword } from "../auth";
+import { hashPassword } from "../auth";
 import { writeAudit } from "../ledger";
 import { toHalfWidth } from "../textNormalize";
 
@@ -80,49 +80,4 @@ export const usersRouter = router({
     await db.delete(users).where(eq(users.id, input.id));
     await writeAudit(db, ctx.user.id, "delete", "user", input.id, { ...before, passwordHash: undefined }, null);
   }),
-
-  /** 任何登入使用者都可以修改自己的顯示姓名（例如預設種子帳號的「系統管理員」） */
-  changeOwnName: protectedProcedure
-    .input(z.object({ name: z.string().min(1).max(50) }))
-    .mutation(async ({ ctx, input }) => {
-      const db = ctx.db;
-      const [before] = await db.select().from(users).where(eq(users.id, ctx.user.id)).limit(1);
-      if (!before) throw new TRPCError({ code: "NOT_FOUND", message: "帳號不存在" });
-      const [updated] = await db
-        .update(users)
-        .set({ name: input.name, updatedAt: Date.now() })
-        .where(eq(users.id, ctx.user.id))
-        .returning();
-      await writeAudit(
-        db,
-        ctx.user.id,
-        "update",
-        "user",
-        ctx.user.id,
-        { ...before, passwordHash: undefined },
-        { ...updated, passwordHash: undefined }
-      );
-      const { passwordHash, ...safe } = updated;
-      return safe;
-    }),
-
-  /** 任何登入使用者都可以修改自己的密碼（需先驗證目前密碼） */
-  changeOwnPassword: protectedProcedure
-    .input(
-      z.object({
-        currentPassword: z.string().min(1),
-        newPassword: z.string().min(6),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const db = ctx.db;
-      const [row] = await db.select().from(users).where(eq(users.id, ctx.user.id)).limit(1);
-      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "帳號不存在" });
-      const ok = await comparePassword(input.currentPassword, row.passwordHash);
-      if (!ok) throw new TRPCError({ code: "UNAUTHORIZED", message: "目前密碼不正確" });
-      const passwordHash = await hashPassword(input.newPassword);
-      await db.update(users).set({ passwordHash, updatedAt: Date.now() }).where(eq(users.id, ctx.user.id));
-      await writeAudit(db, ctx.user.id, "update", "user", ctx.user.id, { passwordHash: "***" }, { passwordHash: "***(changed by self)" });
-      return { success: true };
-    }),
 });

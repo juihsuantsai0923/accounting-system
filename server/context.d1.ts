@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import * as schema from "./schema";
 import { users } from "./schema";
 import { verifyTokenWithSecret } from "./auth";
+import { applyActAs } from "./actAs";
 
 /** Cloudflare Workers 環境變數 / bindings（對應 wrangler.toml 設定） */
 export interface Env {
@@ -41,7 +42,7 @@ export function createD1Context(env: Env) {
         }
       }
     }
-    return { db, user, jwtSecret, googleClientId: env.GOOGLE_CLIENT_ID ?? "" };
+    return { db, user: applyActAs(user, req.headers.get("x-act-as")), jwtSecret, googleClientId: env.GOOGLE_CLIENT_ID ?? "" };
   };
 }
 

@@ -81,14 +81,14 @@ export default function Dashboard() {
   // 教師/推銷者本人帳號：直接導向自己的子記帳表頁面，不顯示全公司的儀表板總覽
   if (user?.role === "teacher_self") {
     return user.linkedTeacherId ? (
-      <Navigate to={`/teacher/${user.linkedTeacherId}`} replace />
+      <Navigate to={`/teacher/${user.linkedTeacherId}/dashboard`} replace />
     ) : (
       <div className="p-8 text-center text-slate-400">尚未綁定教師資料，請聯絡管理員設定帳號。</div>
     );
   }
   if (user?.role === "salesperson_self") {
     return user.linkedSalespersonId ? (
-      <Navigate to={`/salesperson/${user.linkedSalespersonId}`} replace />
+      <Navigate to={`/salesperson/${user.linkedSalespersonId}/dashboard`} replace />
     ) : (
       <div className="p-8 text-center text-slate-400">尚未綁定推銷者資料，請聯絡管理員設定帳號。</div>
     );

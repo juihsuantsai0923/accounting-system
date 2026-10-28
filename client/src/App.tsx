@@ -4,12 +4,10 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import MainLedgerPage from "./pages/MainLedgerPage";
-import TeacherLedgerPage from "./pages/TeacherLedgerPage";
-import SalespersonLedgerPage from "./pages/SalespersonLedgerPage";
+import { PersonDashboardPage, PersonLedgerPage } from "./pages/PersonPages";
 import AdvancePaymentsPage from "./pages/AdvancePaymentsPage";
 import ReconcilePage from "./pages/ReconcilePage";
 import AdminPage from "./pages/AdminPage";
-import AccountPage from "./pages/AccountPage";
 import { SalespeopleDirectoryPage } from "./pages/PeopleDirectoryPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -36,12 +34,15 @@ export default function App() {
         {/* 老師直接列在「人員」選單裡，不再有教師名單頁 */}
         <Route path="/teachers" element={<Navigate to="/" replace />} />
         <Route path="/salespeople" element={<SalespeopleDirectoryPage />} />
-        <Route path="/teacher/:id" element={<TeacherLedgerPage />} />
-        <Route path="/salesperson/:id" element={<SalespersonLedgerPage />} />
+        <Route path="/teacher/:id" element={<PersonLedgerPage kind="teacher" />} />
+        <Route path="/teacher/:id/dashboard" element={<PersonDashboardPage kind="teacher" />} />
+        <Route path="/salesperson/:id" element={<PersonLedgerPage kind="salesperson" />} />
+        <Route path="/salesperson/:id/dashboard" element={<PersonDashboardPage kind="salesperson" />} />
         <Route path="/advance" element={<AdvancePaymentsPage />} />
         <Route path="/reconcile" element={<ReconcilePage />} />
         <Route path="/admin" element={<AdminPage />} />
-        <Route path="/account" element={<AccountPage />} />
+        {/* 改用 Google 登入後不需要帳號設定頁 */}
+        <Route path="/account" element={<Navigate to="/" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
