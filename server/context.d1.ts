@@ -10,6 +10,8 @@ export interface Env {
   JWT_SECRET?: string;
   ADMIN_EMAIL?: string;
   ADMIN_PASSWORD?: string;
+  /** Google 登入用的 OAuth 用戶端 ID（公開值，寫在 wrangler.toml 的 [vars]） */
+  GOOGLE_CLIENT_ID?: string;
 }
 
 /**
@@ -39,7 +41,7 @@ export function createD1Context(env: Env) {
         }
       }
     }
-    return { db, user, jwtSecret };
+    return { db, user, jwtSecret, googleClientId: env.GOOGLE_CLIENT_ID ?? "" };
   };
 }
 

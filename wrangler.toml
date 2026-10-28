@@ -16,3 +16,7 @@ database_id = "deeae71d-a6bb-4fcc-81c2-0b5b17b939f4"
 #   npx wrangler secret put JWT_SECRET
 #   npx wrangler secret put ADMIN_EMAIL
 #   npx wrangler secret put ADMIN_PASSWORD
+
+# 公開設定（不是機密）：Google 登入的 OAuth 用戶端 ID（Google Cloud 專案 leviax-finance，2026-10-29 建立）
+[vars]
+GOOGLE_CLIENT_ID = "355603392015-ftr9j4g2rs2ce593e5njtm967qhq2s4g.apps.googleusercontent.com"

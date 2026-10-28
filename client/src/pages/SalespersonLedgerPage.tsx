@@ -1,8 +1,7 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useState } from "react";
 import { trpc } from "../lib/trpc";
 import { downloadTextFile } from "../lib/download";
-import { useAuth, canManage } from "../lib/auth";
 
 function fmt(n: number) {
   return `NT$${n.toLocaleString()}`;
@@ -15,7 +14,6 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 export default function SalespersonLedgerPage() {
-  const { user } = useAuth();
   const params = useParams();
   const salespersonId = Number(params.id);
   const salespeopleQuery = trpc.salespeople.list.useQuery();
@@ -23,12 +21,6 @@ export default function SalespersonLedgerPage() {
   const utils = trpc.useUtils();
   const [exporting, setExporting] = useState(false);
 
-  const deleteMutation = trpc.salespersonLedger.delete.useMutation({
-    onSuccess: () => {
-      utils.salespersonLedger.invalidate();
-      utils.reports.balanceOverview.invalidate();
-    },
-  });
 
   const salesperson = salespeopleQuery.data?.find((s) => s.id === salespersonId);
   const currentBalance = entriesQuery.data?.length ? entriesQuery.data[entriesQuery.data.length - 1].personalBalance : 0;
@@ -43,10 +35,6 @@ export default function SalespersonLedgerPage() {
     }
   }
 
-  async function handleDelete(id: number) {
-    if (!confirm("確定要刪除這筆分配記錄嗎？會重新計算餘額。")) return;
-    await deleteMutation.mutateAsync({ id });
-  }
 
   return (
     <div className="space-y-6">
@@ -76,7 +64,6 @@ export default function SalespersonLedgerPage() {
               <th>分潤比例</th>
               <th>分配金額</th>
               <th>私人餘額</th>
-              {canManage(user?.role) && <th>操作</th>}
             </tr>
           </thead>
           <tbody>
@@ -105,24 +92,11 @@ export default function SalespersonLedgerPage() {
                 </td>
                 <td>{fmt(entry.personalAmount)}</td>
                 <td>{fmt(entry.personalBalance)}</td>
-                {canManage(user?.role) && (
-                  <td>
-                    {entry.sourceType === "distribution" ? (
-                      <button className="btn-danger" onClick={() => handleDelete(entry.id)} disabled={deleteMutation.isPending}>
-                        刪除
-                      </button>
-                    ) : (
-                      <Link to="/advance" className="text-brand-600 hover:underline text-xs">
-                        至代墊管理操作
-                      </Link>
-                    )}
-                  </td>
-                )}
               </tr>
             ))}
             {entriesQuery.data?.length === 0 && (
               <tr>
-                <td colSpan={10} className="text-center text-slate-400 py-6">
+                <td colSpan={9} className="text-center text-slate-400 py-6">
                   尚無記錄
                 </td>
               </tr>

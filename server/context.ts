@@ -23,7 +23,7 @@ export async function createContext({ req }: CreateExpressContextOptions) {
       }
     }
   }
-  return { db, user, jwtSecret: JWT_SECRET };
+  return { db, user, jwtSecret: JWT_SECRET, googleClientId: process.env.GOOGLE_CLIENT_ID ?? "" };
 }
 
 export type Context = Awaited<ReturnType<typeof createContext>>;

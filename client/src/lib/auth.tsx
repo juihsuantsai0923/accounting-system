@@ -14,6 +14,7 @@ interface AuthContextValue {
   user: AuthUser | null | undefined;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<string>;
   logout: () => void;
 }
 
@@ -23,6 +24,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const utils = trpc.useUtils();
   const meQuery = trpc.auth.me.useQuery();
   const loginMutation = trpc.auth.login.useMutation();
+  const googleMutation = trpc.auth.googleLogin.useMutation();
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -33,13 +35,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [loginMutation, utils]
   );
 
+  const loginWithGoogle = useCallback(
+    async (credential: string) => {
+      const result = await googleMutation.mutateAsync({ credential });
+      setToken(result.token);
+      await utils.auth.me.invalidate();
+      return result.user.email;
+    },
+    [googleMutation, utils]
+  );
+
   const logout = useCallback(() => {
     setToken(null);
     utils.auth.me.invalidate();
   }, [utils]);
 
   return (
-    <AuthContext.Provider value={{ user: meQuery.data as AuthUser | null | undefined, isLoading: meQuery.isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user: meQuery.data as AuthUser | null | undefined, isLoading: meQuery.isLoading, login, loginWithGoogle, logout }}>
       {children}
     </AuthContext.Provider>
   );

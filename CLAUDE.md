@@ -32,7 +32,7 @@ npm.cmd run cf:pages:deploy    # 建置並部署前端（改到 client/ 就要�
 npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X_xxx.sql   # 正式 D1 跑 migration
 ```
 
-- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0011（0011 把舊記錄項目名稱改成完整名稱，可重複執行；0010 加 `main_ledger.edited_at` 並把舊備註改成統一格式，ALTER 只能跑一次；0009 加 `main_ledger.breakdown`，ALTER 只能跑一次；0008 是整合金鑰表，可重複執行；0007 是官網訂單快照表，可重複執行；0005 是小班家教課程與老師對應，可重複執行；0006 加課程上課期間、把舊行事曆收入標成書籍，ALTER 只能跑一次）。
+- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0012（0012 把王歆宜帳號 email 改成她的 Gmail，可重複執行；0011 把舊記錄項目名稱改成完整名稱，可重複執行；0010 加 `main_ledger.edited_at` 並把舊備註改成統一格式，ALTER 只能跑一次；0009 加 `main_ledger.breakdown`，ALTER 只能跑一次；0008 是整合金鑰表，可重複執行；0007 是官網訂單快照表，可重複執行；0005 是小班家教課程與老師對應，可重複執行；0006 加課程上課期間、把舊行事曆收入標成書籍，ALTER 只能跑一次）。
 - **部署順序**：有新 migration 時，一定先跑 D1 migration，再 `wrangler deploy`，最後部署前端；Worker 先上線會因為欄位不存在而查詢失敗。
 - 改完要在回覆裡明確告訴使用者：要不要跑 `wrangler deploy`、要不要跑 migration。
 
@@ -89,6 +89,8 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - 書目與優惠碼初始資料在 `server/catalogSeed.ts`（2026-10-26 依官網整理），本機啟動時 INSERT OR IGNORE，D1 由 0004 寫入；之後改價在管理面板「書籍管理」「優惠碼管理」操作。
 - 支出不支援多方分配。**薪水撥款例外**：前端會把同一筆金額當成 distribution 一起送（type expense），寫進該人員子記帳表，公司欠款跟著減少、公積金不變（2026-10-27 修正，之前薪水不會扣子帳）。
 - 母記帳表「公積金增減」＝收入：金額 − 已分配；支出：−（金額 − 已分配）。所以公帳支出是負數、薪水撥款是 0。
+- **Google 登入**（2026-10-29）：Google Cloud 專案 `leviax-finance`（juihsuantsai0923@gmail.com 的帳號），OAuth 用戶端「Leviax Finance Web」，ID 寫在 `wrangler.toml` [vars] `GOOGLE_CLIENT_ID` 與 `.env.production` `VITE_GOOGLE_CLIENT_ID`（公開值）。同意畫面是「測試」模式，只有測試使用者（目前四位老師的 Gmail）能登入；新增人員要同時在系統開帳號（email＝Gmail）並在 Google Cloud「Audience → Test users」加入。登入用跳轉流程（`client/src/lib/googleRedirect.ts`，response_type=id_token＋nonce，回到 `/login`；重新導向網址已登記 main／根網域／localhost:5173 的 `/login`），後端 `auth.googleLogin` 用 Google tokeninfo 驗證 aud/iss/email_verified 再用 email（不分大小寫）找帳號。登入頁照官網登入頁的樣式；這台電腦登入過的 Gmail 存在 localStorage `login.googleAccounts`。密碼登入收在「改用密碼登入」當備用。
+- **子記帳表唯讀**（2026-10-29）：教師／推銷者子記帳表沒有任何編輯、刪除（前端按鈕與後端 delete 端點都拿掉了）；要改請改帳本或代墊管理。
 - **風格**（2026-10-29）：跟 Leviax 官網預設淺色主題一致。`tailwind.config.js` 的 brand-700＝官網 brand-navy #1e3a6e、brand-50／100＝brand-light／hover、gold-400＝#ffd172、`bg-gold-gradient`＝官網金色漸層；內文 Noto Sans TC、h1–h3 Noto Serif TC；頁首白底＋金色底線。
 - **畫面名稱**（2026-10-29）：導覽列順序 儀表板 → 官網對帳 → 手動記帳（`/entry`，新增記錄表單）→ 帳本（`/ledger`，所有記錄列表；畫面上不再叫「母記帳表」，程式裡仍是 mainLedger）→ 人員（滑鼠移上去展開：直接列出每位在職老師的子記帳表＋推銷者名單；教師名單頁 `/teachers` 已拿掉）→ 代墊管理 → 管理面板 → 帳號設定。帳本不顯示編輯者（只有使用者本人操作），改顯示「最後編輯」（`edited_at`；`updated_at` 會被重算餘額改掉，不能用）。
 - **備註格式**（`server/noteFormat.ts`，前後端共用）：`買家：…｜官網訂單：…｜優惠碼：…｜說明：…`，沒填的欄不出現。表單用 `NoteFields` 分欄填、列表用 `NoteView` 加標籤顯示。對帳靠買家姓名比對、靠「官網訂單」欄位擋重複入帳。
