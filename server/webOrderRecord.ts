@@ -2,6 +2,7 @@ import { isNull } from "drizzle-orm";
 import { books, courses, mainLedger } from "./schema";
 import { computeBookIncome, computeCourseIncome, computeTutoringIncome, CourseIncomeError } from "./revenueCalc";
 import { combineIncome, type IncomePart } from "./combineIncome";
+import { formatNote, parseNote } from "./noteFormat";
 
 /**
  * 官網訂單 → 母記帳表：一張官網訂單入帳成「一筆」收入，裡面每個項目各自照規則分潤：
@@ -9,7 +10,7 @@ import { combineIncome, type IncomePart } from "./combineIncome";
  *   線上課程（「數學工具先修課程（三年方案）」這種）→ 走分潤精靈，金額用官網實付
  *   書籍／筆記本 → 全數留給公積金
  * 官網折扣依各品項定價比例攤；運費（實付比「定價−折扣」多出來的）算進書籍那筆。
- * 備註寫「官網訂單 編號｜買家 姓名」，對帳就會自動配到這張訂單，也用來避免重複入帳。
+ * 備註寫「買家：姓名｜官網訂單：編號」，對帳就會自動配到這張訂單，也用來避免重複入帳。
  */
 
 export type LineKind = "tutoring" | "course" | "book" | "skip" | "unknown";
@@ -26,8 +27,9 @@ export interface PlannedLine {
   amount: number; // 攤完折扣（書籍另加運費前）的金額
 }
 
-export function orderTag(orderNo: string) {
-  return `官網訂單 ${orderNo}`;
+/** 這筆記帳的備註是不是寫著這張官網訂單（新格式「官網訂單：編號」） */
+export function noteHasOrder(note: string | null | undefined, orderNo: string) {
+  return parseNote(note).order === orderNo;
 }
 
 const YEARS: Record<string, 1 | 2 | 3> = { 一年: 1, 兩年: 2, 二年: 2, 三年: 3 };
@@ -86,7 +88,7 @@ export async function planOrder(db: any, order: any, overrides: Record<number, L
   const items: { name: string; price: number }[] = JSON.parse(order.items);
   if (order.tab === "cancelled") errors.push("這張訂單在官網已取消");
   if (order.manualStatus === "ignored") errors.push("這張訂單已標記「不需入帳」");
-  if (catalog.ledger.some((e: any) => (e.note ?? "").includes(orderTag(order.orderNo)))) errors.push("這張訂單已經入帳過了");
+  if (catalog.ledger.some((e: any) => noteHasOrder(e.note, order.orderNo))) errors.push("這張訂單已經入帳過了");
 
   const lines: PlannedLine[] = items.map((it, idx) => {
     const m = matchLine(it.name, it.price, catalog.courses, catalog.books);
@@ -112,7 +114,6 @@ export async function planOrder(db: any, order: any, overrides: Record<number, L
 
   const entries: IncomePart[] = [];
   const noteBits: string[] = [];
-  const tag = `${orderTag(order.orderNo)}｜買家 ${order.buyer}`;
   const bookLines = counted.filter((l) => l.kind === "book");
   const others = counted.filter((l) => l.kind === "tutoring" || l.kind === "course");
   // 沒有書可以放運費時，加到最後一門課
@@ -146,7 +147,7 @@ export async function planOrder(db: any, order: any, overrides: Record<number, L
   }
   if (entries.some((e) => e.amount <= 0)) errors.push("有一筆攤完折扣後金額是 0，請檢查");
 
-  const combined = entries.length ? { ...combineIncome(entries), note: [tag, ...noteBits].join("；") } : null;
+  const combined = entries.length ? { ...combineIncome(entries), note: formatNote({ buyer: order.buyer, order: order.orderNo, memo: noteBits.join("；") }) } : null;
   return {
     orderNo: order.orderNo,
     buyer: order.buyer,

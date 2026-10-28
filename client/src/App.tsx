@@ -31,7 +31,8 @@ export default function App() {
         }
       >
         <Route path="/" element={<Dashboard />} />
-        <Route path="/ledger" element={<MainLedgerPage />} />
+        <Route path="/entry" element={<MainLedgerPage view="entry" />} />
+        <Route path="/ledger" element={<MainLedgerPage view="book" />} />
         <Route path="/teachers" element={<TeachersDirectoryPage />} />
         <Route path="/salespeople" element={<SalespeopleDirectoryPage />} />
         <Route path="/teacher/:id" element={<TeacherLedgerPage />} />

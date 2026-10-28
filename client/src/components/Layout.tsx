@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, ROLE_LABELS, canManage } from "../lib/auth";
 import LeviaxLogo from "./LeviaxLogo";
 
@@ -21,6 +21,54 @@ function TabLink({ to, children, onClick }: { to: string; children: React.ReactN
   );
 }
 
+/**
+ * 「人員」：教師、推銷者兩個名單收在一起。桌面版滑鼠移上去（或用鍵盤 Tab 進去）展開子選單；
+ * 手機選單沒有滑鼠，直接列出兩個子項目。
+ */
+function PeopleMenu({ mobile, onNavigate }: { mobile: boolean; onNavigate: () => void }) {
+  const { pathname } = useLocation();
+  const active = /^\/(teachers|salespeople|teacher\/|salesperson\/)/.test(pathname);
+  if (mobile) {
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="px-3 pt-1 text-xs text-white/50">人員</div>
+        <div className="pl-3 flex flex-col gap-1">
+          <TabLink to="/teachers" onClick={onNavigate}>
+            教師
+          </TabLink>
+          <TabLink to="/salespeople" onClick={onNavigate}>
+            推銷者
+          </TabLink>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="relative group">
+      <button
+        type="button"
+        aria-haspopup="true"
+        className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-150 ${
+          active ? "bg-white/10 text-gold-400 shadow-inner ring-1 ring-gold-500/30" : "text-white/70 hover:bg-white/10 hover:text-white"
+        }`}
+      >
+        人員 ▾
+      </button>
+      {/* pt-1 讓滑鼠從按鈕移到子選單的途中不會斷掉 */}
+      <div className="absolute left-0 top-full pt-1 hidden group-hover:block group-focus-within:block z-20">
+        <div className="min-w-[8rem] rounded-lg bg-brand-800 shadow-lg ring-1 ring-white/10 p-1 flex flex-col gap-0.5">
+          <TabLink to="/teachers" onClick={onNavigate}>
+            教師
+          </TabLink>
+          <TabLink to="/salespeople" onClick={onNavigate}>
+            推銷者
+          </TabLink>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -39,43 +87,39 @@ export default function Layout() {
   // 教師/推銷者人數變多之後，導覽列不再逐一列出每個人的分頁（否則手機上會排成一長串滑不完），
   // 改成統一一個「教師」/「推銷者」入口，點進去是可以搜尋姓名的列表頁。
   // 教師本人/推銷者本人登入時，本來就只看得到自己的資料，直接連到自己的子記帳表即可，不需要列表頁。
-  const navLinks = (
+  const navLinks = (mobile: boolean) => (
     <>
       {!isTeacherSelf && !isSalespersonSelf && (
         <TabLink to="/" onClick={closeMenu}>
           儀表板
         </TabLink>
       )}
-      {!isSalespersonSelf && (
-        <TabLink to="/ledger" onClick={closeMenu}>
-          母記帳表
-        </TabLink>
-      )}
-      {!isSalespersonSelf &&
-        (isTeacherSelf && user?.linkedTeacherId ? (
-          <TabLink to={`/teacher/${user.linkedTeacherId}`} onClick={closeMenu}>
-            我的記帳表
-          </TabLink>
-        ) : (
-          <TabLink to="/teachers" onClick={closeMenu}>
-            教師
-          </TabLink>
-        ))}
-      {!isTeacherSelf &&
-        (isSalespersonSelf && user?.linkedSalespersonId ? (
-          <TabLink to={`/salesperson/${user.linkedSalespersonId}`} onClick={closeMenu}>
-            我的記帳表
-          </TabLink>
-        ) : (
-          <TabLink to="/salespeople" onClick={closeMenu}>
-            推銷者
-          </TabLink>
-        ))}
       {!isTeacherSelf && !isSalespersonSelf && (
         <TabLink to="/reconcile" onClick={closeMenu}>
           官網對帳
         </TabLink>
       )}
+      {canManage(user?.role) && (
+        <TabLink to="/entry" onClick={closeMenu}>
+          手動記帳
+        </TabLink>
+      )}
+      {!isSalespersonSelf && (
+        <TabLink to="/ledger" onClick={closeMenu}>
+          帳本
+        </TabLink>
+      )}
+      {isTeacherSelf && user?.linkedTeacherId && (
+        <TabLink to={`/teacher/${user.linkedTeacherId}`} onClick={closeMenu}>
+          我的記帳表
+        </TabLink>
+      )}
+      {isSalespersonSelf && user?.linkedSalespersonId && (
+        <TabLink to={`/salesperson/${user.linkedSalespersonId}`} onClick={closeMenu}>
+          我的記帳表
+        </TabLink>
+      )}
+      {!isTeacherSelf && !isSalespersonSelf && <PeopleMenu mobile={mobile} onNavigate={closeMenu} />}
       <TabLink to="/advance" onClick={closeMenu}>
         代墊管理
       </TabLink>
@@ -131,7 +175,7 @@ export default function Layout() {
         </div>
 
         {/* 桌面/平板：橫向分頁列（與上方商標列拉開一點距離，避免看起來太擠） */}
-        <div className="hidden sm:flex max-w-7xl mx-auto px-4 pt-2 pb-3 gap-1 overflow-x-auto">{navLinks}</div>
+        <div className="hidden sm:flex flex-wrap max-w-7xl mx-auto px-4 pt-2 pb-3 gap-1">{navLinks(false)}</div>
 
         {/* 手機直式：點漢堡選單展開的直向清單 */}
         {menuOpen && (
@@ -141,7 +185,7 @@ export default function Layout() {
                 {user.name}（{ROLE_LABELS[user.role] ?? user.role}）
               </div>
             )}
-            {navLinks}
+            {navLinks(true)}
           </div>
         )}
       </header>

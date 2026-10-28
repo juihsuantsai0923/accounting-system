@@ -15,6 +15,7 @@ import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { recalculateBalance, recalculateMainLedgerBalance, writeAudit } from "../ledger";
 import { computeCourseIncome, computeTutoringIncome, computeBookIncome, CourseIncomeError, type DistItem } from "../revenueCalc";
 import { combineIncome, type IncomePart } from "../combineIncome";
+import { mergeNote } from "../noteFormat";
 
 const referralInput = z
   .object({
@@ -71,7 +72,7 @@ export async function insertIncome(
   const prevBalance = await getLatestBalance(db);
   const [row] = await db
     .insert(mainLedger)
-    .values({ type: "income", ...entry, balance: prevBalance + entry.amount, editedBy: userId })
+    .values({ type: "income", ...entry, balance: prevBalance + entry.amount, editedBy: userId, editedAt: Date.now() })
     .returning();
 
   const affected: { recipientType: "teacher" | "salesperson"; recipientId: number }[] = [];
@@ -128,6 +129,7 @@ export const mainLedgerRouter = router({
         attachmentUrl: mainLedger.attachmentUrl,
         incomeSource: mainLedger.incomeSource,
         breakdown: mainLedger.breakdown,
+        editedAt: mainLedger.editedAt,
         salaryTeacherId: expenseTypes.teacherId,
         salarySalespersonId: expenseTypes.salespersonId,
         editedBy: mainLedger.editedBy,
@@ -189,6 +191,7 @@ export const mainLedgerRouter = router({
           attachmentUrl: input.attachmentUrl,
           incomeSource: input.type === "income" ? "other" : null,
           editedBy: ctx.user.id,
+          editedAt: Date.now(),
         })
         .returning();
 
@@ -366,10 +369,10 @@ export const mainLedgerRouter = router({
         mapCourseIncomeError(e);
       }
       const r = result!;
-      const parts: string[] = [];
-      if (r.coupon) parts.push(`優惠碼 ${r.coupon.code}（${Math.round(r.coupon.discountRate * 100)}%）`);
-      if (input.amount !== r.suggestedAmount) parts.push(`定價計算 ${r.suggestedAmount} 元，實收 ${input.amount} 元`);
-      if (input.note) parts.push(input.note);
+      const note = mergeNote(input.note, {
+        coupon: r.coupon ? `${r.coupon.code}（${Math.round(r.coupon.discountRate * 100)}%）` : undefined,
+        memo: input.amount !== r.suggestedAmount ? `定價計算 ${r.suggestedAmount} 元，實收 ${input.amount} 元` : undefined,
+      });
       const entry = await insertIncome(
         ctx.db,
         ctx.user.id,
@@ -378,13 +381,44 @@ export const mainLedgerRouter = router({
           categoryId: r.detail[0].bookId,
           categoryName: "書籍",
           amount: input.amount,
-          note: parts.join("；") || undefined,
+          note,
           incomeSource: "book",
         },
         [],
         () => ""
       );
       return { entry, breakdown: r };
+    }),
+
+  /**
+   * 編輯一筆記錄：項目名稱、備註隨時可改；金額只有「沒有分給任何人」的記錄能改
+   * （有分潤的改金額會跟子記帳表對不起來，要刪掉重記）。改金額後重算整本母記帳表的餘額。
+   */
+  update: staffProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        itemName: z.string().trim().min(1, "項目名稱不能空白"),
+        note: z.string().optional(),
+        amount: z.number().int().positive("金額必須大於 0").optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = ctx.db;
+      const [before] = await db.select().from(mainLedger).where(eq(mainLedger.id, input.id)).limit(1);
+      if (!before || before.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "找不到這筆記錄" });
+      const amountChanged = input.amount !== undefined && input.amount !== before.amount;
+      if (amountChanged) {
+        const dists = await db.select().from(ledgerDistribution).where(eq(ledgerDistribution.mainLedgerId, input.id));
+        if (dists.length) throw new TRPCError({ code: "BAD_REQUEST", message: "這筆有分給個人，不能直接改金額；請刪除後重新入帳" });
+      }
+      const now = Date.now();
+      const patch: any = { itemName: input.itemName, note: input.note?.trim() || null, editedBy: ctx.user.id, editedAt: now, updatedAt: now };
+      if (amountChanged) patch.amount = input.amount;
+      await db.update(mainLedger).set(patch).where(eq(mainLedger.id, input.id));
+      if (amountChanged) await recalculateMainLedgerBalance(db);
+      await writeAudit(db, ctx.user.id, "update", "mainLedger", input.id, before, { ...before, ...patch });
+      return { ok: true };
     }),
 
   delete: staffProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {

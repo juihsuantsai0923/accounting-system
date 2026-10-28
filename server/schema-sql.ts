@@ -239,6 +239,7 @@ export const courseColumnMigrations: { column: string; statement: string }[] = [
 export const mainLedgerColumnMigrations: { column: string; statement: string }[] = [
   { column: "income_source", statement: `ALTER TABLE main_ledger ADD COLUMN income_source TEXT` },
   { column: "breakdown", statement: `ALTER TABLE main_ledger ADD COLUMN breakdown TEXT` },
+  { column: "edited_at", statement: `ALTER TABLE main_ledger ADD COLUMN edited_at INTEGER` },
 ];
 
 export const revenueSettingsColumnMigrations: { column: string; statement: string }[] = [

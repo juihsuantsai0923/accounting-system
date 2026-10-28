@@ -193,7 +193,7 @@ export default function ReconcilePage() {
       <div>
         <h1 className="text-xl font-semibold text-slate-800">官網對帳</h1>
         <p className="text-sm text-slate-500 mt-1">
-          把 Leviax 官網的訂單和母記帳表對起來：官網已付款但沒記帳、金額對不上、還沒付款的應收帳款，一次看清楚。
+          把 Leviax 官網的訂單和帳本對起來：官網已付款但沒記帳、金額對不上、還沒付款的應收帳款，一次看清楚。
           {data?.syncedAt ? ` 官網資料最後同步：${fmtTime(data.syncedAt)}。` : " 還沒有同步過官網訂單。"}
         </p>
       </div>
@@ -292,7 +292,7 @@ export default function ReconcilePage() {
                 <th>官網實付</th>
                 <th>官網狀態</th>
                 <th>對帳結果</th>
-                <th>母記帳表</th>
+                <th>帳本</th>
                 {manage && <th></th>}
               </tr>
             </thead>

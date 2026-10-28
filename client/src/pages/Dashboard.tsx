@@ -105,31 +105,15 @@ export default function Dashboard() {
         <div className="text-sm text-slate-500">公積金（公司自己的錢）</div>
         <div className={`text-3xl font-semibold mt-1 ${reserveFund < 0 ? "text-red-600" : "text-brand-700"}`}>{fmt(reserveFund)}</div>
         <div className="text-xs text-slate-400 mt-2">
-          ＝ 母記帳表目前餘額 {fmt(currentBalance)} − 還欠所有人的錢 {fmt(netOwed)}
+          ＝ 帳本目前餘額 {fmt(currentBalance)} − 還欠所有人的錢 {fmt(netOwed)}
           {loanTotal > 0 && `（其中創始基金借款 ${fmt(loanTotal)}，要還給出資人）`}。
           也就是「如果今天把欠所有人的錢全部付清，帳上會剩 {fmt(reserveFund)}」。書籍收入、小班家教扣下的公積金、線上課程沒分出去的部分都會累積在這裡。
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2">
-          <AlertsCard advances={advancesQuery.data ?? []} coupons={couponsQuery.data ?? []} stats={stats} reconcileIssues={reconcileIssues} />
-        </div>
-        <Link to="/reconcile" className="card block hover:shadow-card-hover transition-shadow">
-          <div className="text-sm text-slate-500">應收帳款（官網待付款）</div>
-          <div className="text-2xl font-semibold mt-1 text-brand-700">{fmt(receivable?.total ?? 0)}</div>
-          <div className="text-xs text-slate-400 mt-1">
-            {receivable?.count ? `${receivable.count} 張訂單，最早 ${new Date(receivable.oldestAt!).toLocaleDateString()} 下單` : "目前沒有待付款訂單"}
-          </div>
-          <div className="text-xs text-brand-600 mt-2">查看官網對帳 →</div>
-        </Link>
-      </div>
-
-      <KpiCompare entries={entries} timeline={timeline} />
-
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="card">
-          <div className="text-sm text-slate-500">母記帳表目前餘額</div>
+          <div className="text-sm text-slate-500">帳本目前餘額</div>
           <div className="text-2xl font-semibold mt-1">{fmt(currentBalance)}</div>
         </div>
         <div className="card">
@@ -144,6 +128,22 @@ export default function Dashboard() {
           <div className="text-sm text-slate-500">未核銷代墊總額</div>
           <div className="text-2xl font-semibold mt-1 text-amber-600">{fmt(totalUnsettledAdvance)}</div>
         </div>
+      </div>
+
+      <KpiCompare entries={entries} timeline={timeline} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2">
+          <AlertsCard advances={advancesQuery.data ?? []} coupons={couponsQuery.data ?? []} stats={stats} reconcileIssues={reconcileIssues} />
+        </div>
+        <Link to="/reconcile" className="card block hover:shadow-card-hover transition-shadow">
+          <div className="text-sm text-slate-500">應收帳款（官網待付款）</div>
+          <div className="text-2xl font-semibold mt-1 text-brand-700">{fmt(receivable?.total ?? 0)}</div>
+          <div className="text-xs text-slate-400 mt-1">
+            {receivable?.count ? `${receivable.count} 張訂單，最早 ${new Date(receivable.oldestAt!).toLocaleDateString()} 下單` : "目前沒有待付款訂單"}
+          </div>
+          <div className="text-xs text-brand-600 mt-2">查看官網對帳 →</div>
+        </Link>
       </div>
 
       <MonthlyRevenueChart entries={entries} courseNames={courseNames} />

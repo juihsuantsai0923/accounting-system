@@ -60,7 +60,7 @@ export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orde
           <div>
             <h2 className="text-lg font-semibold text-slate-800">確認入帳（已收到錢）</h2>
             <p className="text-xs text-slate-500 mt-1">
-              每張訂單記成母記帳表一筆，裡面每個品項各自照規則分：小班家教、線上課程分給老師，書籍全留公積金。官網折扣依定價比例攤，運費算進書籍。
+              每張訂單記成帳本一筆，裡面每個品項各自照規則分：小班家教、線上課程分給老師，書籍全留公積金。官網折扣依定價比例攤，運費算進書籍。
             </p>
           </div>
           <button className="text-slate-400 hover:text-slate-600 text-xl leading-none" onClick={onClose} aria-label="關閉">
@@ -145,7 +145,7 @@ export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orde
             {p.combined && (
               <div className="bg-slate-50 rounded-lg p-3 text-sm space-y-1">
                 <div className="text-xs text-slate-500">
-                  母記帳表寫一筆 <b className="text-slate-700">{fmt(p.combined.amount)}</b>（{p.combined.categoryName}），其中：
+                  帳本寫一筆 <b className="text-slate-700">{fmt(p.combined.amount)}</b>（{p.combined.categoryName}），其中：
                 </div>
                 {p.parts.map((e: any, i: number) => (
                   <div key={i} className="flex flex-wrap justify-between gap-2">

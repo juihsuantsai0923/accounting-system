@@ -70,7 +70,7 @@ export default function AdvancePaymentsPage() {
     <div className="space-y-6">
       <h1 className="text-xl font-semibold text-slate-800">代墊款管理</h1>
       <p className="text-sm text-slate-500">
-        教師/推銷者自行墊付了原屬於公司的費用時，在此建立代墊記錄——會立即計入該對象的子記帳表餘額，但不會寫入母記帳表。公司歸還時，可在此「核銷」，或於母記帳表新增正式撥款時直接勾選一併核銷。
+        教師/推銷者自行墊付了原屬於公司的費用時，在此建立代墊記錄——會立即計入該對象的子記帳表餘額，但不會寫入帳本。公司歸還時，可在此「核銷」，或於帳本新增正式撥款時直接勾選一併核銷。
       </p>
 
       {canManage(user?.role) && (
@@ -170,7 +170,7 @@ export default function AdvancePaymentsPage() {
                       {a.status === "unsettled" ? "未核銷" : "已核銷"}
                     </span>
                   </td>
-                  <td>{a.settledByMainLedgerId ? `母記帳表 #${a.settledByMainLedgerId}` : a.status === "settled" ? "獨立沖銷" : "-"}</td>
+                  <td>{a.settledByMainLedgerId ? `帳本 #${a.settledByMainLedgerId}` : a.status === "settled" ? "獨立沖銷" : "-"}</td>
                   {canManage(user?.role) && (
                     <td className="space-x-2">
                       {a.status === "unsettled" ? (

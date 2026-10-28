@@ -32,7 +32,7 @@ npm.cmd run cf:pages:deploy    # 建置並部署前端（改到 client/ 就要�
 npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X_xxx.sql   # 正式 D1 跑 migration
 ```
 
-- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0009（0009 加 `main_ledger.breakdown`，ALTER 只能跑一次；0008 是整合金鑰表，可重複執行；0007 是官網訂單快照表，可重複執行；0005 是小班家教課程與老師對應，可重複執行；0006 加課程上課期間、把舊行事曆收入標成書籍，ALTER 只能跑一次）。
+- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0010（0010 加 `main_ledger.edited_at` 並把舊備註改成統一格式，ALTER 只能跑一次；0009 加 `main_ledger.breakdown`，ALTER 只能跑一次；0008 是整合金鑰表，可重複執行；0007 是官網訂單快照表，可重複執行；0005 是小班家教課程與老師對應，可重複執行；0006 加課程上課期間、把舊行事曆收入標成書籍，ALTER 只能跑一次）。
 - **部署順序**：有新 migration 時，一定先跑 D1 migration，再 `wrangler deploy`，最後部署前端；Worker 先上線會因為欄位不存在而查詢失敗。
 - 改完要在回覆裡明確告訴使用者：要不要跑 `wrangler deploy`、要不要跑 migration。
 
@@ -89,6 +89,9 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - 書目與優惠碼初始資料在 `server/catalogSeed.ts`（2026-10-26 依官網整理），本機啟動時 INSERT OR IGNORE，D1 由 0004 寫入；之後改價在管理面板「書籍管理」「優惠碼管理」操作。
 - 支出不支援多方分配。**薪水撥款例外**：前端會把同一筆金額當成 distribution 一起送（type expense），寫進該人員子記帳表，公司欠款跟著減少、公積金不變（2026-10-27 修正，之前薪水不會扣子帳）。
 - 母記帳表「公積金增減」＝收入：金額 − 已分配；支出：−（金額 − 已分配）。所以公帳支出是負數、薪水撥款是 0。
+- **畫面名稱**（2026-10-29）：導覽列順序 儀表板 → 官網對帳 → 手動記帳（`/entry`，新增記錄表單）→ 帳本（`/ledger`，所有記錄列表；畫面上不再叫「母記帳表」，程式裡仍是 mainLedger）→ 人員（滑鼠移上去展開 教師／推銷者）→ 代墊管理 → 管理面板 → 帳號設定。帳本不顯示編輯者（只有使用者本人操作），改顯示「最後編輯」（`edited_at`；`updated_at` 會被重算餘額改掉，不能用）。
+- **備註格式**（`server/noteFormat.ts`，前後端共用）：`買家：…｜官網訂單：…｜優惠碼：…｜說明：…`，沒填的欄不出現。表單用 `NoteFields` 分欄填、列表用 `NoteView` 加標籤顯示。對帳靠買家姓名比對、靠「官網訂單」欄位擋重複入帳。
+- **編輯記錄**（`mainLedger.update`、`EditEntryDialog.tsx`）：項目名稱、備註隨時可改；金額只有沒分給任何人的記錄能改（改完重算餘額），有分潤的要刪掉重記。
 - **一筆多項**（2026-10-28，`server/combineIncome.ts`）：使用者要「一次記帳選很多個、一次記完」＝一筆記錄，不是拆成多筆。小班家教可一次勾多門課（`createTutoringIncome` 收 `items`），書籍本來就一筆多本。多項合成一筆時，每項的分潤各自寫進該老師子記帳表，`main_ledger.breakdown` 存 JSON `[{source,name,categoryId,amount}]`；來源不同時 `income_source = 'mixed'`、類別「多項收入」。報表一律用 `expandIncome()`（DashboardCharts.tsx）拆回每一項再算。
 - 儀表板分析（`client/src/components/DashboardAnalytics.tsx`）：需要注意（代墊 >30 天、欠薪分潤 >60 天沒付、優惠碼到期）、本月 vs 上月、公積金走勢（`reports.timeline`，每月月底餘額／欠款／公積金，台灣時區）、營收排行（書籍依定價比例拆到每本）、支出分類（薪水合併）、小班家教預收（依 `courses.start_date`～`end_date` 線性估算）、月報 CSV 下載。
 - **官網對帳**（`server/routers/webOrders.ts`、`client/src/pages/ReconcilePage.tsx`，2026-10-27，方法 B）：官網訂單快照存在 D1 `web_orders`（migration 0007）。對帳規則：已付款訂單找「項目或備註含買家姓名、下單前 3 天到後 60 天」的收入；金額＝實付→相符，＝實付＋折扣→記了原價；姓名對不到再找同金額 7 天內的記錄→可能對應。待付款＝應收帳款。可手動標「確認無誤／不需入帳」（`manual_status`，同步時會保留）。

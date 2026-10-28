@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { trpc } from "../lib/trpc";
 import { useAuth, canManage } from "../lib/auth";
 import { downloadTextFile } from "../lib/download";
 import SearchableSelect from "../components/SearchableSelect";
 import CheckList from "../components/CheckList";
+import NoteFields, { NoteView } from "../components/NoteFields";
+import EditEntryDialog from "../components/EditEntryDialog";
+import { formatNote, type NoteParts } from "../../../server/noteFormat";
 
 function fmt(n: number) {
   return n < 0 ? `−NT$${Math.abs(n).toLocaleString()}` : `NT$${n.toLocaleString()}`;
@@ -64,6 +68,10 @@ function monthOf(ts: number) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function fmtDateTime(ts: number) {
+  return new Date(ts).toLocaleString("zh-TW", { hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 function signedFmt(n: number) {
   if (n === 0) return "NT$0";
   return `${n > 0 ? "+" : "−"}NT$${Math.abs(n).toLocaleString()}`;
@@ -75,7 +83,11 @@ function isCouponExpired(validUntil: string | null) {
   return !!validUntil && validUntil < new Date().toISOString().slice(0, 10);
 }
 
-export default function MainLedgerPage() {
+/**
+ * view="entry"：手動記帳（新增記錄的表單）；view="book"：帳本（所有記錄的列表、篩選、編輯）。
+ * 兩頁共用同一份資料與狀態，只是畫面拆開。
+ */
+export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
   const { user } = useAuth();
   const utils = trpc.useUtils();
   const entriesQuery = trpc.mainLedger.list.useQuery();
@@ -111,7 +123,7 @@ export default function MainLedgerPage() {
   const [itemName, setItemName] = useState("");
   const [categoryId, setCategoryId] = useState<number | "">("");
   const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState<NoteParts>({});
   const [showDistribution, setShowDistribution] = useState(false);
   const [distributions, setDistributions] = useState<DistRow[]>([]);
   const [advanceRecipientType, setAdvanceRecipientType] = useState<"teacher" | "salesperson">("teacher");
@@ -136,6 +148,7 @@ export default function MainLedgerPage() {
       /* 無痕模式等情況存不了，不影響使用 */
     }
   }, [newestFirst]);
+  const [editing, setEditing] = useState<any>(null);
   const [filterType, setFilterType] = useState<"all" | "income" | "expense">("all");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterMonth, setFilterMonth] = useState("");
@@ -147,14 +160,14 @@ export default function MainLedgerPage() {
   // 小班家教
   const [tutorRows, setTutorRows] = useState<TutorRow[]>([]);
   const [tutorSaving, setTutorSaving] = useState(false);
-  const [tutorNote, setTutorNote] = useState("");
+  const [tutorNote, setTutorNote] = useState<NoteParts>({});
 
   // 書籍（含筆記本）
   const [bookLines, setBookLines] = useState<BookLine[]>([]);
   const [bookCouponId, setBookCouponId] = useState<number | "">("");
   const [bookAmount, setBookAmount] = useState("");
   const [bookAmountEdited, setBookAmountEdited] = useState(false);
-  const [bookNote, setBookNote] = useState("");
+  const [bookNote, setBookNote] = useState<NoteParts>({});
 
   // 課程收入分潤精靈
   const [wizardCourseId, setWizardCourseId] = useState<number | "">("");
@@ -163,7 +176,7 @@ export default function MainLedgerPage() {
   const [wizardHasReferral, setWizardHasReferral] = useState(false);
   const [wizardReferralType, setWizardReferralType] = useState<"teacher" | "salesperson">("teacher");
   const [wizardReferralId, setWizardReferralId] = useState<number | "">("");
-  const [wizardNote, setWizardNote] = useState("");
+  const [wizardNote, setWizardNote] = useState<NoteParts>({});
   const [preview, setPreview] = useState<any>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -184,7 +197,7 @@ export default function MainLedgerPage() {
     setWizardHasCoupon(false);
     setWizardHasReferral(false);
     setWizardReferralId("");
-    setWizardNote("");
+    setWizardNote({});
     setPreview(null);
     setPreviewError(null);
   }
@@ -226,10 +239,10 @@ export default function MainLedgerPage() {
         years: wizardYears,
         hasCoupon: wizardHasCoupon,
         referral: wizardHasReferral ? { type: wizardReferralType, recipientId: Number(wizardReferralId) } : null,
-        note: wizardNote || undefined,
+        note: formatNote(wizardNote),
       });
       resetWizard();
-      setSuccessMsg("課程收入已入帳：母記帳表已記錄全額，各人員子記帳表已同步分配。");
+      setSuccessMsg("課程收入已入帳：帳本已記錄全額，各人員子記帳表已同步分配。");
     } catch (err: any) {
       setError(err?.message ?? "入帳失敗");
     }
@@ -270,10 +283,10 @@ export default function MainLedgerPage() {
     try {
       await createTutoringIncomeMutation.mutateAsync({
         items: tutorCalc.map((r) => ({ courseId: r.courseId, amount: r.amountNum })),
-        note: tutorNote || undefined,
+        note: formatNote(tutorNote),
       });
       setTutorRows([]);
-      setTutorNote("");
+      setTutorNote({});
       setSuccessMsg(`小班家教已入帳一筆 ${fmt(tutorTotal)}：公積金 ${fmt(tutorReserveTotal)}，${tutorCalc
         .map((r) => `${nameOf("teacher", r.course.teacherId)} ${fmt(r.teacherShare)}`)
         .join("、")}。`);
@@ -307,7 +320,7 @@ export default function MainLedgerPage() {
     setBookCouponId("");
     setBookAmount("");
     setBookAmountEdited(false);
-    setBookNote("");
+    setBookNote({});
   }
 
   async function handleConfirmBook() {
@@ -321,7 +334,7 @@ export default function MainLedgerPage() {
         lines: filledBookLines.map((l) => ({ bookId: Number(l.bookId), qty: parseInt(l.qty, 10) })),
         couponId: bookCouponId === "" ? null : bookCouponId,
         amount: amountToSave,
-        note: bookNote || undefined,
+        note: formatNote(bookNote),
       });
       resetBookForm();
       setSuccessMsg(`書籍收入已入帳：${fmt(amountToSave)} 全數留給公積金。`);
@@ -376,7 +389,7 @@ export default function MainLedgerPage() {
     setItemName("");
     setCategoryId("");
     setAmount("");
-    setNote("");
+    setNote({});
     setDistributions([]);
     setShowDistribution(false);
     setAdvanceRecipientId("");
@@ -400,10 +413,10 @@ export default function MainLedgerPage() {
           recipientId: Number(advanceRecipientId),
           itemName,
           amount,
-          note: note || undefined,
+          note: note.memo?.trim() || undefined,
         });
         resetForm();
-        setSuccessMsg("代墊記錄已建立：只會計入該對象的子記帳表，母記帳表餘額不會變動。完整列表與核銷請至「代墊管理」頁面。");
+        setSuccessMsg("代墊記錄已建立：只會計入該對象的子記帳表，帳本餘額不會變動。完整列表與核銷請至「代墊管理」頁面。");
       } catch (err: any) {
         setError(err?.message ?? "新增失敗");
       }
@@ -434,7 +447,7 @@ export default function MainLedgerPage() {
           itemName,
           categoryId: Number(categoryId),
           amount,
-          note: note || undefined,
+          note: formatNote(note),
           distributions: distributions
             .filter((d) => d.recipientId !== "" && parseInt(d.amount || "0", 10) > 0)
             .map((d) => ({
@@ -484,7 +497,7 @@ export default function MainLedgerPage() {
         itemName: effectiveItemName,
         categoryId: Number(effectiveCategoryId),
         amount,
-        note: note || undefined,
+        note: formatNote(note),
         // 薪水：同一筆金額記進該人員子記帳表的支出，公司欠他的錢跟著減少；其他公帳支出不分配
         distributions:
           expenseKind === "salary" ? [{ type: salaryRecipientType, recipientId: Number(salaryRecipientId), amount }] : [],
@@ -536,9 +549,14 @@ export default function MainLedgerPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-slate-800">母記帳表</h1>
+        <h1 className="text-xl font-semibold text-slate-800">{view === "entry" ? "手動記帳" : "帳本"}</h1>
         <div className="flex flex-wrap gap-2">
-          {canManage(user?.role) && (
+          {view === "entry" && (
+            <Link to="/ledger" className="btn-secondary">
+              看帳本 →
+            </Link>
+          )}
+          {view === "book" && canManage(user?.role) && (
             <button
               className="btn-secondary"
               onClick={handleRecalculate}
@@ -548,14 +566,16 @@ export default function MainLedgerPage() {
               {recalcMutation.isPending ? "重新計算中..." : "重新計算餘額"}
             </button>
           )}
-          <button className="btn-secondary" onClick={handleExportCsv} disabled={exporting}>
-            {exporting ? "匯出中..." : "下載 CSV 對帳表"}
-          </button>
+          {view === "book" && (
+            <button className="btn-secondary" onClick={handleExportCsv} disabled={exporting}>
+              {exporting ? "匯出中..." : "下載 CSV 對帳表"}
+            </button>
+          )}
         </div>
       </div>
       {recalcMsg && <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">{recalcMsg}</div>}
 
-      {canManage(user?.role) && (
+      {view === "entry" && canManage(user?.role) && (
         <form onSubmit={handleSubmit} className="card space-y-4">
           <h2 className="font-medium text-slate-700">新增記錄</h2>
           {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
@@ -582,7 +602,7 @@ export default function MainLedgerPage() {
           {type === "advance" ? (
             <div className="space-y-4">
               <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
-                代墊：教師/推銷者自己先墊付了公司的費用，記一筆到他的子記帳表餘額，不會影響母記帳表。之後公司歸還時，可以到「代墊管理」核銷，或在這裡新增撥款時一併勾選核銷。
+                代墊：教師/推銷者自己先墊付了公司的費用，記一筆到他的子記帳表餘額，不會影響帳本。之後公司歸還時，可以到「代墊管理」核銷，或在這裡新增撥款時一併勾選核銷。
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
@@ -625,8 +645,8 @@ export default function MainLedgerPage() {
                 </div>
               </div>
               <div>
-                <label className="label">備註（選填）</label>
-                <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
+                <label className="label">說明（選填）</label>
+                <input className="input" value={note.memo ?? ""} onChange={(e) => setNote({ memo: e.target.value })} />
               </div>
             </div>
           ) : type === "income" ? (
@@ -652,7 +672,7 @@ export default function MainLedgerPage() {
               {incomeMode === "course" ? (
               <>
               <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
-                課程收入分潤精靈：依《課程分潤與成本結構辦法》自動計算各人分潤。母記帳表會記錄「入帳金額」（售價 − 優惠碼折抵，尚未扣除行銷抽成），行銷抽成與所有分潤只會反映在各自的子記帳表。
+                課程收入分潤精靈：依《課程分潤與成本結構辦法》自動計算各人分潤。帳本會記錄「入帳金額」（售價 − 優惠碼折抵，尚未扣除行銷抽成），行銷抽成與所有分潤只會反映在各自的子記帳表。
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -681,9 +701,8 @@ export default function MainLedgerPage() {
                       );
                     })()}
                 </div>
-                <div>
-                  <label className="label">備註（選填）</label>
-                  <input className="input" value={wizardNote} onChange={(e) => setWizardNote(e.target.value)} />
+                <div className="sm:col-span-2">
+                  <NoteFields value={wizardNote} onChange={setWizardNote} fields={["buyer", "order", "memo"]} />
                 </div>
               </div>
 
@@ -776,7 +795,7 @@ export default function MainLedgerPage() {
                       <span className="font-medium">{fmt(preview.price)}</span>
                     </div>
                     <div>
-                      母記帳表將記錄入帳金額：<span className="font-medium">{fmt(preview.amount)}</span>
+                      帳本將記錄入帳金額：<span className="font-medium">{fmt(preview.amount)}</span>
                       {wizardHasCoupon && <span className="text-slate-400"> （售價 {fmt(preview.price)} − 優惠碼折抵）</span>}
                     </div>
                     <div className="text-slate-400 text-xs">
@@ -874,14 +893,11 @@ export default function MainLedgerPage() {
                         </div>
                       ))}
                       <div className="text-sm text-slate-700 border-t border-slate-100 pt-2">
-                        母記帳表記一筆 <span className="font-medium">{fmt(tutorTotal)}</span>・公積金 {fmt(tutorReserveTotal)}
+                        帳本記一筆 <span className="font-medium">{fmt(tutorTotal)}</span>・公積金 {fmt(tutorReserveTotal)}
                       </div>
                     </div>
                   )}
-                  <div className="sm:w-1/2">
-                    <label className="label">備註（選填，例如學生姓名；每筆都會寫上）</label>
-                    <input className="input" value={tutorNote} onChange={(e) => setTutorNote(e.target.value)} />
-                  </div>
+                  <NoteFields value={tutorNote} onChange={setTutorNote} fields={["buyer", "order", "memo"]} />
                   <button type="button" className="btn-primary" onClick={handleConfirmTutoring} disabled={tutorSaving}>
                     {tutorSaving ? "入帳中..." : "確認入帳"}
                   </button>
@@ -982,9 +998,8 @@ export default function MainLedgerPage() {
                         </button>
                       )}
                     </div>
-                    <div>
-                      <label className="label">備註（選填，例如買家姓名）</label>
-                      <input className="input" value={bookNote} onChange={(e) => setBookNote(e.target.value)} />
+                    <div className="sm:col-span-3">
+                      <NoteFields value={bookNote} onChange={setBookNote} fields={["buyer", "order", "memo"]} />
                     </div>
                   </div>
                   {bookSubtotal > 0 && (
@@ -996,7 +1011,7 @@ export default function MainLedgerPage() {
                         </div>
                       )}
                       <div>
-                        母記帳表記錄（全數留給公積金）：<span className="font-medium">{fmt(parseInt(bookAmountShown || "0", 10) || 0)}</span>
+                        帳本記錄（全數留給公積金）：<span className="font-medium">{fmt(parseInt(bookAmountShown || "0", 10) || 0)}</span>
                       </div>
                     </div>
                   )}
@@ -1034,9 +1049,8 @@ export default function MainLedgerPage() {
                         required
                       />
                     </div>
-                    <div>
-                      <label className="label">備註（選填）</label>
-                      <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
+                    <div className="col-span-full">
+                      <NoteFields value={note} onChange={setNote} fields={["buyer", "order", "memo"]} />
                     </div>
                   </div>
 
@@ -1198,9 +1212,8 @@ export default function MainLedgerPage() {
                     required
                   />
                 </div>
-                <div>
-                  <label className="label">備註（選填）</label>
-                  <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
+                <div className="col-span-full">
+                  <NoteFields value={note} onChange={setNote} fields={["memo"]} />
                 </div>
               </div>
 
@@ -1223,6 +1236,7 @@ export default function MainLedgerPage() {
         </form>
       )}
 
+      {view === "book" && (
       <div className="card space-y-3">
         <div className="flex flex-wrap items-end gap-2">
           <div>
@@ -1303,8 +1317,8 @@ export default function MainLedgerPage() {
               <th>類型</th>
               <th>金額</th>
               <th title="收入：沒分給任何人、留在公司的部分；公帳支出：從公積金扣掉（負數）；薪水撥款不影響公積金">公積金增減</th>
-              <th title="母記帳表的累計餘額，依記錄先後計算，不受排序和篩選影響">餘額</th>
-              <th>編輯者</th>
+              <th title="帳本的累計餘額，依記錄先後計算，不受排序和篩選影響">餘額</th>
+              <th>最後編輯</th>
               {canManage(user?.role) && <th>操作</th>}
             </tr>
           </thead>
@@ -1316,7 +1330,7 @@ export default function MainLedgerPage() {
                   <td className="whitespace-nowrap">{new Date(entry.createdAt).toLocaleDateString()}</td>
                   <td>
                     {entry.itemName}
-                    {entry.note && <div className="text-xs text-slate-400">{entry.note}</div>}
+                    <NoteView note={entry.note} />
                   </td>
                   <td>
                     {entry.categoryName}
@@ -1333,9 +1347,12 @@ export default function MainLedgerPage() {
                     {isSalaryEntry(entry) && delta === 0 ? "不影響" : signedFmt(delta)}
                   </td>
                   <td>{fmt(entry.balance)}</td>
-                  <td>{entry.editorName ?? "-"}</td>
+                  <td className="whitespace-nowrap text-xs text-slate-500">{fmtDateTime(entry.editedAt ?? entry.createdAt)}</td>
                   {canManage(user?.role) && (
-                    <td>
+                    <td className="whitespace-nowrap space-x-1">
+                      <button className="btn-secondary" onClick={() => setEditing(entry)}>
+                        編輯
+                      </button>
                       <button className="btn-danger" onClick={() => handleDelete(entry.id)}>
                         刪除
                       </button>
@@ -1355,6 +1372,8 @@ export default function MainLedgerPage() {
         </table>
         </div>
       </div>
+      )}
+      {editing && <EditEntryDialog entry={editing} onClose={() => setEditing(null)} />}
     </div>
   );
 }
