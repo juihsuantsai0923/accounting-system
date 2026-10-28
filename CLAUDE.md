@@ -89,7 +89,7 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - 書目與優惠碼初始資料在 `server/catalogSeed.ts`（2026-10-26 依官網整理），本機啟動時 INSERT OR IGNORE，D1 由 0004 寫入；之後改價在管理面板「書籍管理」「優惠碼管理」操作。
 - 支出不支援多方分配。**薪水撥款例外**：前端會把同一筆金額當成 distribution 一起送（type expense），寫進該人員子記帳表，公司欠款跟著減少、公積金不變（2026-10-27 修正，之前薪水不會扣子帳）。
 - 母記帳表「公積金增減」＝收入：金額 − 已分配；支出：−（金額 − 已分配）。所以公帳支出是負數、薪水撥款是 0。
-- **畫面名稱**（2026-10-29）：導覽列順序 儀表板 → 官網對帳 → 手動記帳（`/entry`，新增記錄表單）→ 帳本（`/ledger`，所有記錄列表；畫面上不再叫「母記帳表」，程式裡仍是 mainLedger）→ 人員（滑鼠移上去展開 教師／推銷者）→ 代墊管理 → 管理面板 → 帳號設定。帳本不顯示編輯者（只有使用者本人操作），改顯示「最後編輯」（`edited_at`；`updated_at` 會被重算餘額改掉，不能用）。
+- **畫面名稱**（2026-10-29）：導覽列順序 儀表板 → 官網對帳 → 手動記帳（`/entry`，新增記錄表單）→ 帳本（`/ledger`，所有記錄列表；畫面上不再叫「母記帳表」，程式裡仍是 mainLedger）→ 人員（滑鼠移上去展開：直接列出每位在職老師的子記帳表＋推銷者名單；教師名單頁 `/teachers` 已拿掉）→ 代墊管理 → 管理面板 → 帳號設定。帳本不顯示編輯者（只有使用者本人操作），改顯示「最後編輯」（`edited_at`；`updated_at` 會被重算餘額改掉，不能用）。
 - **備註格式**（`server/noteFormat.ts`，前後端共用）：`買家：…｜官網訂單：…｜優惠碼：…｜說明：…`，沒填的欄不出現。表單用 `NoteFields` 分欄填、列表用 `NoteView` 加標籤顯示。對帳靠買家姓名比對、靠「官網訂單」欄位擋重複入帳。
 - **編輯記錄**（`mainLedger.update`、`EditEntryDialog.tsx`）：項目名稱、備註隨時可改；金額只有沒分給任何人的記錄能改（改完重算餘額），有分潤的要刪掉重記。
 - **一筆多項**（2026-10-28，`server/combineIncome.ts`）：使用者要「一次記帳選很多個、一次記完」＝一筆記錄，不是拆成多筆。小班家教可一次勾多門課（`createTutoringIncome` 收 `items`），書籍本來就一筆多本。多項合成一筆時，每項的分潤各自寫進該老師子記帳表，`main_ledger.breakdown` 存 JSON `[{source,name,categoryId,amount}]`；來源不同時 `income_source = 'mixed'`、類別「多項收入」。報表一律用 `expandIncome()`（DashboardCharts.tsx）拆回每一項再算。

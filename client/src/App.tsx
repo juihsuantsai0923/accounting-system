@@ -10,7 +10,7 @@ import AdvancePaymentsPage from "./pages/AdvancePaymentsPage";
 import ReconcilePage from "./pages/ReconcilePage";
 import AdminPage from "./pages/AdminPage";
 import AccountPage from "./pages/AccountPage";
-import { TeachersDirectoryPage, SalespeopleDirectoryPage } from "./pages/PeopleDirectoryPage";
+import { SalespeopleDirectoryPage } from "./pages/PeopleDirectoryPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -33,7 +33,8 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/entry" element={<MainLedgerPage view="entry" />} />
         <Route path="/ledger" element={<MainLedgerPage view="book" />} />
-        <Route path="/teachers" element={<TeachersDirectoryPage />} />
+        {/* 老師直接列在「人員」選單裡，不再有教師名單頁 */}
+        <Route path="/teachers" element={<Navigate to="/" replace />} />
         <Route path="/salespeople" element={<SalespeopleDirectoryPage />} />
         <Route path="/teacher/:id" element={<TeacherLedgerPage />} />
         <Route path="/salesperson/:id" element={<SalespersonLedgerPage />} />

@@ -368,6 +368,14 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
 
   const advanceRecipientOptions = advanceRecipientType === "teacher" ? teachersQuery.data ?? [] : salespeopleQuery.data ?? [];
 
+  /** 選類別時，項目名稱還沒填（或還是上一個類別的名稱）就先帶入類別名稱，讓人接著補細節 */
+  function pickCategory(id: number, list: any[]) {
+    setCategoryId(id);
+    const names = new Set(list.map((c: any) => c.name));
+    const picked = list.find((c: any) => c.id === id);
+    if (picked && (!itemName.trim() || names.has(itemName.trim()))) setItemName(`${picked.name} `);
+  }
+
   function addDistribution(kind: "teacher" | "salesperson") {
     const list = kind === "teacher" ? teachersQuery.data : salespeopleQuery.data;
     if (!list?.length) return;
@@ -486,7 +494,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
         return;
       }
       if (!itemName.trim()) {
-        setError("請填寫品項備註");
+        setError("請填寫項目名稱");
         return;
       }
     }
@@ -1023,12 +1031,13 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
-                      <label className="label">項目名稱</label>
-                      <input className="input" value={itemName} onChange={(e) => setItemName(e.target.value)} required />
-                    </div>
-                    <div>
-                      <label className="label">收入類型</label>
-                      <select className="input" value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))} required>
+                      <label className="label">收入類別</label>
+                      <select
+                        className="input"
+                        value={categoryId}
+                        onChange={(e) => pickCategory(Number(e.target.value), incomeTypesQuery.data ?? [])}
+                        required
+                      >
                         <option value="">請選擇</option>
                         {(incomeTypesQuery.data ?? []).map((c: any) => (
                           <option key={c.id} value={c.id}>
@@ -1036,7 +1045,18 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                           </option>
                         ))}
                       </select>
-                      <p className="text-xs text-slate-400 mt-1">收入類型清單可至管理面板「收入類型管理」新增。</p>
+                      <p className="text-xs text-slate-400 mt-1">收入類別清單可至管理面板「收入類型管理」新增。</p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="label">項目名稱</label>
+                      <input
+                        className="input"
+                        value={itemName}
+                        onChange={(e) => setItemName(e.target.value)}
+                        placeholder="例如：銀行利息 2026 上半年"
+                        required
+                      />
+                      <p className="text-xs text-slate-400 mt-1">選類別會先帶入類別名稱，再補上是什麼（年份、數量、對象），帳本上一眼看得懂。</p>
                     </div>
                     <div>
                       <label className="label">金額</label>
@@ -1177,8 +1197,8 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                   </>
                 ) : (
                   <div>
-                    <label className="label">支出項目</label>
-                    <select className="input" value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))} required>
+                    <label className="label">支出類別</label>
+                    <select className="input" value={categoryId} onChange={(e) => pickCategory(Number(e.target.value), generalExpenseTypes)} required>
                       <option value="">請選擇</option>
                       {generalExpenseTypes.map((c: any) => (
                         <option key={c.id} value={c.id}>
@@ -1189,14 +1209,18 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                   </div>
                 )}
 
-                <div>
-                  <label className="label">{expenseKind === "salary" ? "備註（選填，例如：7月份薪資）" : "品項備註"}</label>
+                <div className={expenseKind === "other" ? "sm:col-span-2" : undefined}>
+                  <label className="label">{expenseKind === "salary" ? "項目名稱（選填，預設「某某 薪水」）" : "項目名稱"}</label>
                   <input
                     className="input"
                     value={itemName}
                     onChange={(e) => setItemName(e.target.value)}
+                    placeholder={expenseKind === "salary" ? "例如：10 月份薪資" : "例如：Vimeo 年費 2026、數學工具講義印製 30 本"}
                     required={expenseKind === "other"}
                   />
+                  {expenseKind === "other" && (
+                    <p className="text-xs text-slate-400 mt-1">選類別會先帶入類別名稱，再補上是什麼（年份、數量、對象），帳本上一眼看得懂。</p>
+                  )}
                 </div>
               </div>
 

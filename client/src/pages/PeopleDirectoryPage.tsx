@@ -44,10 +44,6 @@ export function PeopleDirectory({ kind }: Props) {
   );
 }
 
-export function TeachersDirectoryPage() {
-  return <PeopleDirectory kind="teacher" />;
-}
-
 export function SalespeopleDirectoryPage() {
   return <PeopleDirectory kind="salesperson" />;
 }

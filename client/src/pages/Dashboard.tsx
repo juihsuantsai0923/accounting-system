@@ -146,9 +146,10 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      <MonthlyRevenueChart entries={entries} courseNames={courseNames} />
-
-      <ReserveTrendChart timeline={timeline} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <MonthlyRevenueChart entries={entries} courseNames={courseNames} />
+        <ReserveTrendChart timeline={timeline} />
+      </div>
 
       <div className="space-y-3">
         <div className="flex items-center gap-2">

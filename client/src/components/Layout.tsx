@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, ROLE_LABELS, canManage } from "../lib/auth";
 import LeviaxLogo from "./LeviaxLogo";
+import { trpc } from "../lib/trpc";
 
 function TabLink({ to, children, onClick }: { to: string; children: React.ReactNode; onClick?: () => void }) {
   return (
@@ -22,24 +23,31 @@ function TabLink({ to, children, onClick }: { to: string; children: React.ReactN
 }
 
 /**
- * 「人員」：教師、推銷者兩個名單收在一起。桌面版滑鼠移上去（或用鍵盤 Tab 進去）展開子選單；
- * 手機選單沒有滑鼠，直接列出兩個子項目。
+ * 「人員」：直接列出每位老師（點了就是他的子記帳表），最後是推銷者名單。
+ * 桌面版滑鼠移上去（或用鍵盤 Tab 進去）展開子選單；手機選單沒有滑鼠，直接列出來。
  */
 function PeopleMenu({ mobile, onNavigate }: { mobile: boolean; onNavigate: () => void }) {
   const { pathname } = useLocation();
+  const teachers = (trpc.teachers.list.useQuery().data ?? []).filter((t: any) => t.isActive !== false);
+  const items = (
+    <>
+      {teachers.map((t: any) => (
+        <TabLink key={t.id} to={`/teacher/${t.id}`} onClick={onNavigate}>
+          {t.name}
+        </TabLink>
+      ))}
+      {teachers.length > 0 && <div className="my-0.5 border-t border-white/10" />}
+      <TabLink to="/salespeople" onClick={onNavigate}>
+        推銷者
+      </TabLink>
+    </>
+  );
   const active = /^\/(teachers|salespeople|teacher\/|salesperson\/)/.test(pathname);
   if (mobile) {
     return (
       <div className="flex flex-col gap-1">
         <div className="px-3 pt-1 text-xs text-white/50">人員</div>
-        <div className="pl-3 flex flex-col gap-1">
-          <TabLink to="/teachers" onClick={onNavigate}>
-            教師
-          </TabLink>
-          <TabLink to="/salespeople" onClick={onNavigate}>
-            推銷者
-          </TabLink>
-        </div>
+        <div className="pl-3 flex flex-col gap-1">{items}</div>
       </div>
     );
   }
@@ -56,14 +64,7 @@ function PeopleMenu({ mobile, onNavigate }: { mobile: boolean; onNavigate: () =>
       </button>
       {/* pt-1 讓滑鼠從按鈕移到子選單的途中不會斷掉 */}
       <div className="absolute left-0 top-full pt-1 hidden group-hover:block group-focus-within:block z-20">
-        <div className="min-w-[8rem] rounded-lg bg-brand-800 shadow-lg ring-1 ring-white/10 p-1 flex flex-col gap-0.5">
-          <TabLink to="/teachers" onClick={onNavigate}>
-            教師
-          </TabLink>
-          <TabLink to="/salespeople" onClick={onNavigate}>
-            推銷者
-          </TabLink>
-        </div>
+        <div className="min-w-[8rem] rounded-lg bg-brand-800 shadow-lg ring-1 ring-white/10 p-1 flex flex-col gap-0.5">{items}</div>
       </div>
     </div>
   );

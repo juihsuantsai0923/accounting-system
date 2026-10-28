@@ -155,7 +155,7 @@ export const mainLedgerRouter = router({
     .input(
       z.object({
         type: z.enum(["income", "expense"]),
-        itemName: z.string().min(1),
+        itemName: z.string().trim().min(1),
         categoryId: z.number(),
         amount: z.string().regex(/^\d+$/, "金額必須為整數"),
         note: z.string().optional(),
