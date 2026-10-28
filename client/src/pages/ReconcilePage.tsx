@@ -115,7 +115,7 @@ function SyncPanel({ syncedAt, onRefresh }: { syncedAt: number | null; onRefresh
 
       {waiting && (
         <div className="text-sm bg-brand-50 text-brand-800 rounded-lg px-3 py-2">
-          已打開官網訂單頁。請在那個分頁點書籤列上的「⇅ 同步到記帳」，完成後會自動回到這裡並更新結果。
+          已打開官網訂單頁。請在那個分頁點書籤列上的「⇅ 同步到記帳」：會一起同步訂單和官網的課程、書籍、優惠碼，完成後自動回到這裡。
         </div>
       )}
 

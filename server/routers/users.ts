@@ -23,7 +23,8 @@ export const usersRouter = router({
     .input(
       z.object({
         email: emailSchema,
-        password: z.string().min(6),
+        // 大家都用 Google 登入；沒給密碼就存一組隨機字串的雜湊（等於沒有密碼，不能用密碼登入）
+        password: z.string().min(6).optional(),
         name: z.string().min(1),
         role: roleSchema,
         linkedTeacherId: z.number().nullable().optional(),
@@ -32,7 +33,8 @@ export const usersRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = ctx.db;
-      const passwordHash = await hashPassword(input.password);
+      const random = [...globalThis.crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const passwordHash = await hashPassword(input.password ?? random);
       const [created] = await db
         .insert(users)
         .values({

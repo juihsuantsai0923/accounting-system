@@ -2,7 +2,8 @@
  * 澈點科學財務系統：官網訂單同步（書籤小工具載入的腳本）
  *
  * 在使用者已登入的 Leviax 官網後台執行：用隱藏的 iframe 依序打開「訂單管理」三個分頁
- * （待處理／已完成／已取消），讀出每張訂單，送到記帳系統的 /api/web-orders/sync。
+ * （待處理／已完成／已取消）讀出每張訂單，再讀「課程管理」「書籍管理」「定價與優惠 › 優惠碼」
+ * 的商品清單，一起送到記帳系統的 /api/web-orders/sync。
  * 只讀官網、不改官網；不讀也不送電話、地址、匯款末五碼。
  * 書籤會先設定 window.__LX_SYNC = { key, api, back }。
  */
@@ -100,6 +101,125 @@
     });
   }
 
+  // ── 商品清單（課程、書籍、優惠碼） ──
+  function sleep(ms) {
+    return new Promise(function (r) { setTimeout(r, ms); });
+  }
+  // 打開一個後台頁面（隱藏 iframe），等 main 裡出現 readyText 才回傳 iframe
+  function openFrame(url, readyText) {
+    return new Promise(function (resolve, reject) {
+      var f = document.createElement("iframe");
+      f.style.cssText = "position:fixed;left:-10000px;top:0;width:1280px;height:900px;border:0;visibility:hidden";
+      f.src = url + (url.indexOf("?") >= 0 ? "&" : "?") + "_lxsync=" + Date.now();
+      var started = Date.now();
+      f.onload = function () {
+        (function poll() {
+          try {
+            var main = f.contentDocument && f.contentDocument.querySelector("main");
+            if (main && main.innerText.indexOf(readyText) >= 0) return setTimeout(function () { resolve(f); }, 600);
+          } catch (e) {
+            f.remove();
+            return reject(e);
+          }
+          if (Date.now() - started > 15000) {
+            f.remove();
+            return reject(new Error("官網頁面載入逾時：" + url));
+          }
+          setTimeout(poll, 300);
+        })();
+      };
+      document.body.appendChild(f);
+    });
+  }
+  function linesOf(el) {
+    return el.innerText.split(/\r?\n/).map(function (x) { return x.trim(); }).filter(Boolean);
+  }
+  function price(text) {
+    var m = /NT\$([\d,]+)/.exec(text);
+    return m ? +m[1].replace(/,/g, "") : null;
+  }
+  async function clickTab(f, label) {
+    var b = Array.prototype.find.call(f.contentDocument.querySelectorAll("button"), function (x) { return x.textContent.trim() === label; });
+    if (!b) throw new Error("找不到「" + label + "」分頁（官網可能改版）");
+    b.click();
+    await sleep(1200);
+  }
+
+  async function readCourses() {
+    var f = await openFrame("/admin/courses", "新增課程");
+    var L = linesOf(f.contentDocument.querySelector("main"));
+    f.remove();
+    var out = [];
+    for (var i = 0; i < L.length; i++) {
+      if (!/^NT\$[\d,]+$/.test(L[i])) continue;
+      var name = L[i - 1];
+      var j = i - 1;
+      while (j > 0 && L[j] !== "線上課程" && L[j] !== "小班家教") j--;
+      if (j <= 0) continue;
+      out.push([name, L[j] === "小班家教" ? "tutoring" : "online", L[j - 1], price(L[i])]);
+    }
+    return out;
+  }
+
+  var STATUS_RE = /^(.+?)(販售中|預購|已停售|停售|已下架|下架)(最划算)?$/;
+  async function readBooks() {
+    var f = await openFrame("/admin/products", "本單品");
+    var doc = f.contentDocument;
+    var products = [];
+    Array.prototype.forEach.call(doc.querySelectorAll("main a[href^='/admin/products/']"), function (a) {
+      // 往上找到只包含一個商品的卡片（卡片裡剛好出現一次「本單品」）
+      var card = a;
+      while (card && ((card.innerText || "").match(/本單品/g) || []).length !== 1) card = card.parentElement;
+      if (!card) return;
+      var L = linesOf(card);
+      if (L.length >= 2 && !products.some(function (p) { return p.href === a.getAttribute("href"); }))
+        products.push({ href: a.getAttribute("href"), name: L[0], type: L[1] });
+    });
+    f.remove();
+    if (!products.length) throw new Error("讀不到書籍清單（官網可能改版）");
+    var out = [];
+    for (var k = 0; k < products.length; k++) {
+      var p = products[k];
+      say("正在讀書籍清單（" + (k + 1) + "/" + products.length + "）…");
+      var pf = await openFrame(p.href, "單品與組合包");
+      await clickTab(pf, "單品與組合包");
+      var L = linesOf(pf.contentDocument.querySelector("main"));
+      pf.remove();
+      var subject = p.name.replace(/先修課程$/, "");
+      var calendar = p.type === "行事曆";
+      var section = "";
+      for (var i = 0; i < L.length; i++) {
+        if (L[i].indexOf("單品（") === 0) section = "item";
+        else if (L[i].indexOf("組合包（") === 0) section = "bundle";
+        var m = STATUS_RE.exec(L[i]);
+        if (!section || !m || !L[i + 1] || L[i + 1].indexOf("NT$") !== 0) continue;
+        var itemName = m[1].trim();
+        var v = price(L[i + 1]);
+        if (section === "bundle") out.push([subject + " " + itemName, "bundle", v]);
+        else if (calendar) out.push([p.name + "（" + itemName + "）", "notebook", v]);
+        else out.push([itemName, itemName.indexOf("刷題本") >= 0 ? "workbook" : "book", v]);
+      }
+    }
+    return out;
+  }
+
+  async function readCoupons() {
+    var f = await openFrame("/admin/pricing", "方案定價");
+    await clickTab(f, "優惠碼");
+    var L = linesOf(f.contentDocument.querySelector("main"));
+    f.remove();
+    var out = [];
+    for (var i = 0; i < L.length; i++) {
+      var pct = /^(\d+(?:\.\d+)?)% 折扣$/.exec(L[i] || "");
+      if (!pct) continue;
+      var code = L[i - 2];
+      var active = L[i - 1] === "啟用中";
+      var until = /~\s*(\d{4}-\d{2}-\d{2})\s*$/.exec(L[i + 1] || "");
+      if (code && /^[A-Za-z0-9_-]+$/.test(code)) out.push([code, +pct[1] / 100, until ? until[1] : null, active]);
+    }
+    return out;
+  }
+
   (async function run() {
     try {
       var all = [];
@@ -111,15 +231,19 @@
       var byNo = {};
       all.forEach(function (o) { byNo[o[0]] = o; });
       var orders = Object.keys(byNo).map(function (k) { return byNo[k]; });
-      say("讀到 " + orders.length + " 張訂單，正在送到記帳系統…");
+      say("正在讀課程清單…");
+      var catalog = { courses: await readCourses(), books: await readBooks(), coupons: [] };
+      say("正在讀優惠碼…");
+      catalog.coupons = await readCoupons();
+      say("讀到 " + orders.length + " 張訂單、" + catalog.courses.length + " 門課、" + catalog.books.length + " 項書籍、" + catalog.coupons.length + " 組優惠碼，正在送到記帳系統…");
       var res = await fetch(cfg.api.replace(/\/$/, "") + "/api/web-orders/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Sync-Key": cfg.key },
-        body: JSON.stringify({ orders: orders }),
+        body: JSON.stringify({ orders: orders, catalog: catalog }),
       });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok) throw new Error(data.error || "記帳系統回應錯誤（" + res.status + "）");
-      say("✓ 已同步 " + data.count + " 張訂單，正在回到記帳系統…");
+      say("✓ 已同步 " + data.count + " 張訂單和商品清單，正在回到記帳系統…");
       setTimeout(function () {
         if (cfg.back) location.href = cfg.back;
         else box.remove();

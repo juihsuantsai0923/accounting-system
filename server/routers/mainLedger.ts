@@ -13,18 +13,9 @@ import {
 } from "../schema";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { recalculateBalance, recalculateMainLedgerBalance, writeAudit } from "../ledger";
-import { computeCourseIncome, computeTutoringIncome, computeBookIncome, CourseIncomeError, type DistItem } from "../revenueCalc";
+import { computeCourseIncome, computeTutoringIncome, computeBookIncome, splitBookIncome, CourseIncomeError, type DistItem } from "../revenueCalc";
 import { combineIncome, type IncomePart } from "../combineIncome";
 import { mergeNote } from "../noteFormat";
-
-const referralInput = z
-  .object({
-    type: z.enum(["teacher", "salesperson"]),
-    recipientId: z.number(),
-  })
-  .nullable();
-
-const yearsInput = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 
 function mapCourseIncomeError(e: unknown): never {
   if (e instanceof CourseIncomeError) {
@@ -253,9 +244,9 @@ export const mainLedgerRouter = router({
       return entry;
     }),
 
-  /** 課程收入分潤精靈：只計算、不寫入資料庫，用來讓前端在送出前先預覽分配結果 */
+  /** 線上課程：只計算、不寫入，預覽公積金、行政費、主理老師各多少 */
   previewCourseIncome: staffProcedure
-    .input(z.object({ courseId: z.number(), years: yearsInput, hasCoupon: z.boolean(), referral: referralInput }))
+    .input(z.object({ courseId: z.number(), amount: z.number().int() }))
     .query(async ({ ctx, input }) => {
       try {
         return await computeCourseIncome(ctx.db, input);
@@ -264,11 +255,9 @@ export const mainLedgerRouter = router({
       }
     }),
 
-  /** 課程收入分潤精靈：依照《課程分潤與成本結構辦法》計算並正式入帳 */
+  /** 線上課程入帳：實收金額照「公積金＋行政費（團隊三人平分）＋主理老師」分 */
   createCourseIncome: staffProcedure
-    .input(
-      z.object({ courseId: z.number(), years: yearsInput, hasCoupon: z.boolean(), referral: referralInput, note: z.string().optional() })
-    )
+    .input(z.object({ courseId: z.number(), amount: z.number().int(), note: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const db = ctx.db;
       let result;
@@ -351,7 +340,10 @@ export const mainLedgerRouter = router({
       }
     }),
 
-  /** 書籍入帳：全數留給公積金，不分給任何人。amount 是實際收到的錢（可以跟建議金額不同） */
+  /**
+   * 書籍入帳：amount 是實際收到的錢（可以跟建議金額不同）。依科目分給老師（公積金＋行政費＋該科老師），
+   * 行事曆與認不出科目的書全部留公積金；不同科目的書合成一筆記錄。
+   */
   createBookIncome: staffProcedure
     .input(
       z.object({
@@ -362,32 +354,39 @@ export const mainLedgerRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      let result;
+      let r;
       try {
-        result = await computeBookIncome(ctx.db, input);
+        r = await computeBookIncome(ctx.db, input);
       } catch (e) {
         mapCourseIncomeError(e);
       }
-      const r = result!;
       const note = mergeNote(input.note, {
-        coupon: r.coupon ? `${r.coupon.code}（${Math.round(r.coupon.discountRate * 100)}%）` : undefined,
-        memo: input.amount !== r.suggestedAmount ? `定價計算 ${r.suggestedAmount} 元，實收 ${input.amount} 元` : undefined,
+        coupon: r!.coupon ? `${r!.coupon.code}（${Math.round(r!.coupon.discountRate * 100)}%）` : undefined,
+        memo: input.amount !== r!.suggestedAmount ? `定價計算 ${r!.suggestedAmount} 元，實收 ${input.amount} 元` : undefined,
       });
+      const groups = await splitBookIncome(ctx.db, r!.detail, input.amount);
+      const c = combineIncome(groups.map((g) => ({ source: "book" as const, categoryName: "書籍", ...g })));
       const entry = await insertIncome(
         ctx.db,
         ctx.user.id,
-        {
-          itemName: r.itemName,
-          categoryId: r.detail[0].bookId,
-          categoryName: "書籍",
-          amount: input.amount,
-          note,
-          incomeSource: "book",
-        },
-        [],
-        () => ""
+        { itemName: r!.itemName, categoryId: c.categoryId, categoryName: "書籍", amount: c.amount, note, incomeSource: "book", breakdown: c.breakdown },
+        c.distributions,
+        (d) => d.itemNameSuffix
       );
-      return { entry, breakdown: r };
+      return { entry, breakdown: r, reserve: c.reserve };
+    }),
+
+  /** 書籍：只計算、不寫入，預覽依科目怎麼分 */
+  previewBookSplit: staffProcedure
+    .input(z.object({ lines: bookLinesInput, amount: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      let r;
+      try {
+        r = await computeBookIncome(ctx.db, { lines: input.lines, couponId: null });
+      } catch (e) {
+        mapCourseIncomeError(e);
+      }
+      return splitBookIncome(ctx.db, r!.detail, input.amount);
     }),
 
   /**

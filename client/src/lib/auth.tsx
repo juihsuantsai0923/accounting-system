@@ -67,12 +67,13 @@ export function useAuth() {
 
 export const ROLE_LABELS: Record<string, string> = {
   super_admin: "系統管理員",
-  finance_staff: "財務人員",
+  finance_staff: "財務人員（唯讀）",
   viewer: "唯讀人員",
   teacher_self: "教師本人",
   salesperson_self: "推銷者本人",
 };
 
+/** 能不能改帳（記帳、編輯、刪除、管理面板）：只有系統管理員；財務人員唯讀 */
 export function canManage(role: string | undefined) {
-  return role === "super_admin" || role === "finance_staff";
+  return role === "super_admin";
 }

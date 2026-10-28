@@ -1,6 +1,6 @@
 import { isNull } from "drizzle-orm";
 import { books, courses, mainLedger } from "./schema";
-import { computeBookIncome, computeCourseIncome, computeTutoringIncome, CourseIncomeError } from "./revenueCalc";
+import { computeBookIncome, computeCourseIncome, computeTutoringIncome, splitBookIncome, CourseIncomeError } from "./revenueCalc";
 import { combineIncome, type IncomePart } from "./combineIncome";
 import { formatNote, parseNote } from "./noteFormat";
 
@@ -8,7 +8,7 @@ import { formatNote, parseNote } from "./noteFormat";
  * 官網訂單 → 母記帳表：一張官網訂單入帳成「一筆」收入，裡面每個項目各自照規則分潤：
  *   小班家教（課程名稱＝官網品名）→ 扣公積金比例後給主理教師
  *   線上課程（「數學工具先修課程（三年方案）」這種）→ 走分潤精靈，金額用官網實付
- *   書籍／筆記本 → 全數留給公積金
+ *   書籍 → 依科目：公積金＋行政費＋該科老師；行事曆（筆記本）與運費全數留給公積金
  * 官網折扣依各品項定價比例攤；運費（實付比「定價−折扣」多出來的）算進書籍那筆。
  * 備註寫「買家：姓名｜官網訂單：編號」，對帳就會自動配到這張訂單，也用來避免重複入帳。
  */
@@ -128,7 +128,7 @@ export async function planOrder(db: any, order: any, overrides: Record<number, L
         const r = await computeTutoringIncome(db, { courseId: l.targetId!, amount });
         entries.push({ source: "tutoring", name: r.course.name, categoryId: r.course.id, categoryName: "小班家教", amount, distributions: r.distributions, personalLabel: r.course.name });
       } else {
-        const r = await computeCourseIncome(db, { courseId: l.targetId!, years: l.years ?? 1, hasCoupon: false, referral: null, amountOverride: amount });
+        const r = await computeCourseIncome(db, { courseId: l.targetId!, amount });
         noteBits.push(`${r.course.name} ${l.years} 年方案`);
         entries.push({ source: "course", name: r.course.name, categoryId: r.course.id, categoryName: r.course.name, amount, distributions: r.distributions, personalLabel: r.course.name });
       }
@@ -137,9 +137,13 @@ export async function planOrder(db: any, order: any, overrides: Record<number, L
       const qty = new Map<number, number>();
       bookLines.forEach((l) => qty.set(l.targetId!, (qty.get(l.targetId!) ?? 0) + 1));
       const r = await computeBookIncome(db, { lines: [...qty].map(([bookId, q]) => ({ bookId, qty: q })), couponId: null });
-      const amount = bookLines.reduce((s, l) => s + l.amount, 0) + shipping;
-      if (shipping) noteBits.push(`書籍含運費 ${shipping} 元`);
-      entries.push({ source: "book", name: r.itemName, categoryId: r.detail[0].bookId, categoryName: "書籍", amount, distributions: [], personalLabel: "書籍" });
+      const goods = bookLines.reduce((s, l) => s + l.amount, 0);
+      // 書依科目分給老師；運費不分，全部留公積金
+      for (const g of await splitBookIncome(db, r.detail, goods)) entries.push({ source: "book", categoryName: "書籍", ...g });
+      if (shipping) {
+        noteBits.push(`運費 ${shipping} 元`);
+        entries.push({ source: "book", name: "運費", categoryId: r.detail[0].bookId, categoryName: "書籍", amount: shipping, distributions: [], personalLabel: "運費" });
+      }
     }
   } catch (e) {
     if (e instanceof CourseIncomeError) errors.push(e.message);

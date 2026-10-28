@@ -1,61 +1,31 @@
 import { eq, inArray } from "drizzle-orm";
-import { books, coupons, courses, revenueSettings, revenueTeamMembers } from "./schema";
-
-export interface RevenueSettingsRow {
-  id: number;
-  baseDiscount: number;
-  couponDiscount: number;
-  referralBonus: number;
-  platformFeeRate: number;
-  teamBonusRate: number;
-  materialCost: number;
-  monthlySubscription: number;
-  estimatedMonthlySales: number;
-  tutoringReserveRate: number;
-}
-
-/** 對照《課程分潤與成本結構辦法》文件裡的預設數字 */
-export const DEFAULT_REVENUE_SETTINGS: Omit<RevenueSettingsRow, "id"> = {
-  baseDiscount: 0.6, // 目前基礎折數（1 年期），例如 0.6 = 6 折
-  couponDiscount: 750,
-  referralBonus: 500,
-  platformFeeRate: 0.2,
-  teamBonusRate: 50 / 3 / 100,
-  materialCost: 300,
-  monthlySubscription: 350,
-  estimatedMonthlySales: 30,
-  tutoringReserveRate: 0.1, // 小班家教：實收金額的 10% 留給公積金，其餘全給主理教師（2026-10-26 由 5% 改為 10%）
-};
-
-export type CourseYears = 1 | 2 | 3;
+import { books, coupons, courses, revenueSettings, revenueTeamMembers, teachers } from "./schema";
 
 /**
- * 依《課程分潤與成本結構辦法》的年期加成規則計算實際折數：
- * 1 年期 = 基礎折數；2 年期 = 基礎折數 + 1 折；3 年期 = 基礎折數 + 2 折。
- * 若疊加後超過 10 折，照樣計算（例如 11 折 = 原價 ×1.1），不做上限限制。
+ * 分潤規則（2026-10-29 起簡化成兩個參數）：
+ *   公積金比例 reserveRate（預設 10%）：線上課程、書籍、小班家教都先留這個比例給公司
+ *   行政費比例 adminFeeRate（預設 10%）：線上課程、書籍另外抽這個比例，固定由團隊名單上的三位平分
+ *   剩下的全部給主理老師（線上課程＝課程的老師；書籍＝依科目對應的老師）
+ * 例外：行事曆（筆記本）全部留公積金；小班家教不抽行政費。
+ * 金額一律用實際收到的錢（不再用原價×折數−優惠碼推算）。
  */
-export function computeDiscountTier(baseDiscount: number, years: CourseYears): number {
-  return baseDiscount + (years - 1) * 0.1;
+export interface RevenueSettingsRow {
+  id: number;
+  reserveRate: number;
+  adminFeeRate: number;
 }
+
+export const DEFAULT_REVENUE_SETTINGS = { reserveRate: 0.1, adminFeeRate: 0.1 };
 
 /** 讀取分潤設定，資料庫裡還沒有任何設定列時自動建立一列預設值 */
 export async function getRevenueSettings(db: any): Promise<RevenueSettingsRow> {
   const rows = await db.select().from(revenueSettings).where(eq(revenueSettings.id, 1)).limit(1);
-  if (rows[0]) return rows[0];
+  if (rows[0]) return { id: 1, reserveRate: rows[0].reserveRate, adminFeeRate: rows[0].adminFeeRate };
   await db.insert(revenueSettings).values({ id: 1, ...DEFAULT_REVENUE_SETTINGS, updatedAt: Date.now() });
   return { id: 1, ...DEFAULT_REVENUE_SETTINGS };
 }
 
 export type RecipientType = "teacher" | "salesperson";
-
-export interface CourseIncomeInput {
-  courseId: number;
-  years: CourseYears;
-  hasCoupon: boolean;
-  referral: { type: RecipientType; recipientId: number } | null;
-  /** 官網訂單入帳用：直接用官網實付金額當入帳金額（不再用原價×折數−優惠碼推算） */
-  amountOverride?: number;
-}
 
 export interface DistItem {
   type: RecipientType;
@@ -72,108 +42,73 @@ export class CourseIncomeError extends Error {
   }
 }
 
-/**
- * 課程收入分潤精靈的核心計算邏輯，Express 跟 Cloudflare Workers 共用（透過 ctx.db 傳入）。
- * 計算順序完全對照《課程分潤與成本結構辦法》：
- *   實際折數 = 基礎折數 + 年期加成（2 年期 +1 折／3 年期 +2 折，超過 10 折不設上限）
- *   售價 = 原價 × 實際折數
- *   入帳金額 = 售價 − 優惠碼折抵（若有使用）
- *   分配用淨額 = 入帳金額 − 推廣抽成（若有行銷人員）
- *   平台費 = 分配用淨額 × 平台費比例
- *   每人團隊獎金 = 平台費 × 每人比例，無條件進位
- *   主理教師分潤 = 分配用淨額 − 平台費
- *   （母記帳表記錄「入帳金額」；子記帳表的每一筆分配各自入帳）
- */
-export async function computeCourseIncome(db: any, input: CourseIncomeInput) {
-  const [course] = await db.select().from(courses).where(eq(courses.id, input.courseId)).limit(1);
-  if (!course) throw new CourseIncomeError("找不到課程");
-  if (course.category === "tutoring") throw new CourseIncomeError("這門課是小班家教，請改用「小班家教」入帳");
-  if (!course.teacherId) throw new CourseIncomeError("此課程尚未設定所屬教師，請至管理面板「課程管理」設定");
+/** 科目 → 主理老師（書籍依科目分潤；名稱裡出現哪個科目就算哪位老師） */
+export const SUBJECT_TEACHERS: { subject: string; keywords: string[]; teacherName: string }[] = [
+  { subject: "物理", keywords: ["物理"], teacherName: "蔡睿軒" },
+  { subject: "化學", keywords: ["化學"], teacherName: "王歆宜" },
+  { subject: "生物", keywords: ["生物"], teacherName: "潘彥宇" },
+  { subject: "地科", keywords: ["地科", "地球科學"], teacherName: "陳宥勳" },
+  { subject: "數學", keywords: ["數學"], teacherName: "蔡睿軒" },
+];
 
-  const originalPrice = course.originalPrice ?? course.basePrice;
-  if (!originalPrice) throw new CourseIncomeError("此課程尚未設定原價，請至管理面板「課程管理」設定");
+export function subjectOf(name: string) {
+  return SUBJECT_TEACHERS.find((s) => s.keywords.some((k) => name.includes(k))) ?? null;
+}
 
-  const settings = await getRevenueSettings(db);
-  const teamMembers: { id: number; recipientType: RecipientType; recipientId: number }[] = await db
-    .select()
-    .from(revenueTeamMembers);
-
-  const discountTier = computeDiscountTier(settings.baseDiscount, input.years);
-  const price = Math.round(originalPrice * discountTier);
-
-  const amount = input.amountOverride ?? price - (input.hasCoupon ? settings.couponDiscount : 0);
-  if (amount <= 0) throw new CourseIncomeError("計算出的入帳金額不合理，請檢查課程原價、折數與優惠碼折抵設定");
-
-  const netForSplit = amount - (input.referral ? settings.referralBonus : 0);
-  const platformFee = Math.round(netForSplit * settings.platformFeeRate);
-  const perPersonBonus = Math.ceil(platformFee * settings.teamBonusRate);
-  const ownerShare = netForSplit - platformFee;
-
-  const distributions: DistItem[] = [];
-  distributions.push({ type: "teacher", recipientId: course.teacherId, amount: ownerShare, role: "owner", itemNameSuffix: "課程主理分潤" });
-  for (const m of teamMembers) {
-    distributions.push({ type: m.recipientType, recipientId: m.recipientId, amount: perPersonBonus, role: "team_bonus", itemNameSuffix: "團隊獎金" });
-  }
-  if (input.referral) {
-    distributions.push({
-      type: input.referral.type,
-      recipientId: input.referral.recipientId,
-      amount: settings.referralBonus,
-      role: "referral",
-      itemNameSuffix: "推廣抽成",
-    });
-  }
-
-  const totalDistributed = distributions.reduce((s, d) => s + d.amount, 0);
-  if (totalDistributed > amount) {
-    throw new CourseIncomeError("分配總額超過入帳金額，請確認分潤設定（比例/固定金額）是否合理");
-  }
-
-  const undistributed = amount - totalDistributed; // 尚未分配給任何人的部分（平台費扣完獎金後的剩餘）
-  const costPerCourse = settings.materialCost + Math.round(settings.monthlySubscription / settings.estimatedMonthlySales);
-  const platformReserve = undistributed - costPerCourse; // 僅供預覽參考的估算平台積金，不會寫入任何分錄
-
-  return {
-    course,
-    settings,
-    years: input.years,
-    originalPrice,
-    discountTier,
-    price,
-    amount,
-    netForSplit,
-    platformFee,
-    perPersonBonus,
-    ownerShare,
-    referralAmount: input.referral ? settings.referralBonus : 0,
-    distributions,
-    totalDistributed,
-    undistributed,
-    costPerCourse,
-    platformReserve,
-  };
+export async function teacherIdForSubject(db: any, name: string): Promise<number | null> {
+  const s = subjectOf(name);
+  if (!s) return null;
+  const [t] = await db.select({ id: teachers.id }).from(teachers).where(eq(teachers.name, s.teacherName)).limit(1);
+  return t?.id ?? null;
 }
 
 /**
- * 小班家教收入：跟線上課程不同，不套折數、優惠碼、推廣抽成與團隊獎金。
- *   公積金 = 實收金額 × 小班家教公積金比例（四捨五入到元）
- *   主理教師 = 實收金額 − 公積金
- * 母記帳表記錄實收全額，公積金部分不分給任何人（留在公司）。
+ * 有行政費的分法（線上課程、書籍）：
+ *   公積金＋行政費＝金額 ×（公積金比例＋行政費比例），四捨五入；主理老師拿剩下的
+ *   行政費＝金額 × 行政費比例，團隊名單每人平分（無條件捨去），零頭跟公積金一起留在公司
+ */
+export async function splitWithAdminFee(db: any, amount: number, ownerTeacherId: number, ownerSuffix: string) {
+  const settings = await getRevenueSettings(db);
+  const members: { recipientType: RecipientType; recipientId: number }[] = await db.select().from(revenueTeamMembers);
+  const companyPart = Math.round(amount * (settings.reserveRate + settings.adminFeeRate));
+  const ownerShare = amount - companyPart;
+  const adminFee = Math.round(amount * settings.adminFeeRate);
+  const perPerson = members.length ? Math.floor(adminFee / members.length) : 0;
+  const distributions: DistItem[] = [{ type: "teacher", recipientId: ownerTeacherId, amount: ownerShare, role: "owner", itemNameSuffix: ownerSuffix }];
+  for (const m of members) distributions.push({ type: m.recipientType, recipientId: m.recipientId, amount: perPerson, role: "team_bonus", itemNameSuffix: "行政費" });
+  const totalDistributed = distributions.reduce((s, d) => s + d.amount, 0);
+  return { settings, ownerShare, adminFee, perPerson, distributions, totalDistributed, reserve: amount - totalDistributed };
+}
+
+/** 線上課程：實收金額照「公積金＋行政費＋主理老師」分 */
+export async function computeCourseIncome(db: any, input: { courseId: number; amount: number }) {
+  const [course] = await db.select().from(courses).where(eq(courses.id, input.courseId)).limit(1);
+  if (!course) throw new CourseIncomeError("找不到課程");
+  if (course.category === "tutoring") throw new CourseIncomeError("這門課是小班家教，請改用「小班家教」入帳");
+  if (!course.teacherId) throw new CourseIncomeError("這門課還沒有對應的主理老師");
+  if (!Number.isInteger(input.amount) || input.amount <= 0) throw new CourseIncomeError("實收金額必須是大於 0 的整數");
+  const split = await splitWithAdminFee(db, input.amount, course.teacherId, "課程主理分潤");
+  return { course, amount: input.amount, ...split };
+}
+
+/**
+ * 小班家教：不抽行政費。
+ *   公積金 = 實收金額 × 公積金比例（四捨五入到元）；主理教師 = 實收金額 − 公積金
  */
 export async function computeTutoringIncome(db: any, input: { courseId: number; amount: number }) {
   const [course] = await db.select().from(courses).where(eq(courses.id, input.courseId)).limit(1);
   if (!course) throw new CourseIncomeError("找不到課程");
   if (course.category !== "tutoring") throw new CourseIncomeError("這門課不是小班家教，請改用「線上課程」入帳");
-  if (!course.teacherId) throw new CourseIncomeError("此課程尚未設定主理教師，請至管理面板「課程管理」設定");
+  if (!course.teacherId) throw new CourseIncomeError("此課程尚未設定主理教師");
   if (!Number.isInteger(input.amount) || input.amount <= 0) throw new CourseIncomeError("實收金額必須是大於 0 的整數");
 
   const settings = await getRevenueSettings(db);
-  const reserve = Math.round(input.amount * settings.tutoringReserveRate);
+  const reserve = Math.round(input.amount * settings.reserveRate);
   const teacherShare = input.amount - reserve;
   const distributions: DistItem[] = [
     { type: "teacher", recipientId: course.teacherId, amount: teacherShare, role: "owner", itemNameSuffix: "小班家教分潤" },
   ];
-  return { course, amount: input.amount, reserveRate: settings.tutoringReserveRate, reserve, teacherShare, distributions };
+  return { course, amount: input.amount, reserveRate: settings.reserveRate, reserve, teacherShare, distributions };
 }
 
 export interface BookLineInput {
@@ -182,8 +117,8 @@ export interface BookLineInput {
 }
 
 /**
- * 書籍收入：依書目定價 × 數量加總，再套用優惠碼折扣比例（四捨五入到元），得到建議實收金額。
- * 書籍收入全數留給公積金，不分給任何人。實收金額可由記帳人員改寫（例如現場另外議價）。
+ * 書籍：依書目定價 × 數量加總，再套用優惠碼折扣比例（四捨五入到元），得到建議實收金額。
+ * 實收金額可由記帳人員改寫（例如現場另外議價）。分潤見 splitBookIncome。
  */
 export async function computeBookIncome(db: any, input: { lines: BookLineInput[]; couponId: number | null }) {
   const lines = input.lines.filter((l) => l.qty > 0);
@@ -195,7 +130,7 @@ export async function computeBookIncome(db: any, input: { lines: BookLineInput[]
   const detail = lines.map((l) => {
     const b = byId.get(l.bookId);
     if (!b) throw new CourseIncomeError("找不到其中一本書，請重新整理頁面");
-    return { bookId: b.id, name: b.name as string, price: b.price as number, qty: l.qty, subtotal: b.price * l.qty };
+    return { bookId: b.id, name: b.name as string, kind: b.kind as string, price: b.price as number, qty: l.qty, subtotal: b.price * l.qty };
   });
   const subtotal = detail.reduce((s, d) => s + d.subtotal, 0);
 
@@ -209,4 +144,36 @@ export async function computeBookIncome(db: any, input: { lines: BookLineInput[]
   const suggestedAmount = subtotal - discount;
   const itemName = detail.map((d) => (d.qty > 1 ? `${d.name}×${d.qty}` : d.name)).join("、");
   return { detail, subtotal, coupon, discount, suggestedAmount, itemName };
+}
+
+/**
+ * 書籍收入拆給誰：實收金額依定價比例攤到每本書，再依科目分組。
+ *   行事曆（筆記本）→ 全部留公積金
+ *   有科目的書 → 公積金＋行政費＋該科老師（同線上課程）
+ *   認不出科目的書 → 全部留公積金
+ * 回傳每一組的金額與分潤，給 combineIncome 合成一筆。
+ */
+export async function splitBookIncome(db: any, detail: { bookId: number; name: string; kind: string; subtotal: number; qty: number }[], amount: number) {
+  const total = detail.reduce((s, d) => s + d.subtotal, 0);
+  const groups = new Map<string, { label: string; categoryId: number; items: string[]; amount: number; teacherId: number | null }>();
+  let left = amount;
+  for (let i = 0; i < detail.length; i++) {
+    const d = detail[i];
+    const share = i === detail.length - 1 ? left : total ? Math.round((amount * d.subtotal) / total) : 0;
+    left -= share;
+    const subject = d.kind === "notebook" ? null : subjectOf(d.name);
+    const teacherId = subject ? await teacherIdForSubject(db, d.name) : null;
+    const key = teacherId ? `t${teacherId}` : "reserve";
+    const g = groups.get(key) ?? { label: subject && teacherId ? `${subject.subject}書籍` : "書籍", categoryId: d.bookId, items: [], amount: 0, teacherId };
+    g.items.push(d.qty > 1 ? `${d.name}×${d.qty}` : d.name);
+    g.amount += share;
+    groups.set(key, g);
+  }
+  const parts = [];
+  for (const g of groups.values()) {
+    if (g.amount <= 0) continue;
+    const distributions = g.teacherId ? (await splitWithAdminFee(db, g.amount, g.teacherId, "書籍分潤")).distributions : [];
+    parts.push({ name: g.items.join("、"), categoryId: g.categoryId, amount: g.amount, distributions, personalLabel: g.label });
+  }
+  return parts;
 }

@@ -14,10 +14,13 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
   return next({ ctx: { ...ctx, user: ctx.user } });
 });
 
-/** 需要 finance_staff 以上（含 super_admin） */
+/**
+ * 會改帳的操作（新增、編輯、刪除、入帳、核銷）。2026-10-29 起只有系統管理員能做；
+ * 財務人員改成唯讀（帳本、所有人的子記帳表都看得到，但不能改）。
+ */
 export const staffProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (!["super_admin", "finance_staff"].includes(ctx.user.role)) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "需要財務人員以上權限" });
+  if (ctx.user.role !== "super_admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "只有系統管理員可以修改帳目" });
   }
   return next({ ctx });
 });

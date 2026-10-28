@@ -171,11 +171,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
 
   // 課程收入分潤精靈
   const [wizardCourseId, setWizardCourseId] = useState<number | "">("");
-  const [wizardYears, setWizardYears] = useState<1 | 2 | 3>(1);
-  const [wizardHasCoupon, setWizardHasCoupon] = useState(false);
-  const [wizardHasReferral, setWizardHasReferral] = useState(false);
-  const [wizardReferralType, setWizardReferralType] = useState<"teacher" | "salesperson">("teacher");
-  const [wizardReferralId, setWizardReferralId] = useState<number | "">("");
+  const [wizardAmount, setWizardAmount] = useState("");
   const [wizardNote, setWizardNote] = useState<NoteParts>({});
   const [preview, setPreview] = useState<any>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -193,35 +189,22 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
 
   function resetWizard() {
     setWizardCourseId("");
-    setWizardYears(1);
-    setWizardHasCoupon(false);
-    setWizardHasReferral(false);
-    setWizardReferralId("");
+    setWizardAmount("");
     setWizardNote({});
     setPreview(null);
     setPreviewError(null);
   }
 
+  const wizardAmountNum = parseInt(wizardAmount || "0", 10) || 0;
+
   async function handlePreviewCourseIncome() {
     setPreviewError(null);
     setPreview(null);
-    if (!wizardCourseId) {
-      setPreviewError("請先選擇課程");
-      return;
-    }
-    if (wizardHasReferral && !wizardReferralId) {
-      setPreviewError("請選擇行銷人員（或老師本人）");
-      return;
-    }
+    if (!wizardCourseId) return setPreviewError("請先選擇課程");
+    if (wizardAmountNum <= 0) return setPreviewError("請填實收金額");
     setPreviewLoading(true);
     try {
-      const result = await utils.mainLedger.previewCourseIncome.fetch({
-        courseId: Number(wizardCourseId),
-        years: wizardYears,
-        hasCoupon: wizardHasCoupon,
-        referral: wizardHasReferral ? { type: wizardReferralType, recipientId: Number(wizardReferralId) } : null,
-      });
-      setPreview(result);
+      setPreview(await utils.mainLedger.previewCourseIncome.fetch({ courseId: Number(wizardCourseId), amount: wizardAmountNum }));
     } catch (err: any) {
       setPreviewError(err?.message ?? "預覽失敗");
     } finally {
@@ -234,15 +217,9 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
     setSuccessMsg(null);
     if (!wizardCourseId || !preview) return;
     try {
-      await createCourseIncomeMutation.mutateAsync({
-        courseId: Number(wizardCourseId),
-        years: wizardYears,
-        hasCoupon: wizardHasCoupon,
-        referral: wizardHasReferral ? { type: wizardReferralType, recipientId: Number(wizardReferralId) } : null,
-        note: formatNote(wizardNote),
-      });
+      await createCourseIncomeMutation.mutateAsync({ courseId: Number(wizardCourseId), amount: wizardAmountNum, note: formatNote(wizardNote) });
       resetWizard();
-      setSuccessMsg("課程收入已入帳：帳本已記錄全額，各人員子記帳表已同步分配。");
+      setSuccessMsg("線上課程已入帳：帳本記錄全額，主理老師分潤與行政費已同步到各人的帳本。");
     } catch (err: any) {
       setError(err?.message ?? "入帳失敗");
     }
@@ -251,7 +228,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
   // ── 小班家教：實收金額 × 公積金比例留公司，其餘全給主理教師 ──
   const tutoringCourses = (coursesQuery.data ?? []).filter((c: any) => c.category === "tutoring");
   const onlineCourses = (coursesQuery.data ?? []).filter((c: any) => c.category !== "tutoring");
-  const tutoringRate = settingsQuery.data?.settings.tutoringReserveRate ?? 0.1;
+  const tutoringRate = settingsQuery.data?.settings.reserveRate ?? 0.1;
   const courseById = new Map((coursesQuery.data ?? []).map((c: any) => [c.id, c]));
   const tutorCalc = tutorRows.map((r) => {
     const course: any = courseById.get(r.courseId);
@@ -297,7 +274,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
     }
   }
 
-  // ── 書籍（含筆記本）：定價 × 數量，套用優惠碼，全數留給公積金 ──
+  // ── 書籍（含筆記本）：定價 × 數量，套用優惠碼；依科目分給老師，行事曆全留公積金 ──
   const activeBooks = (booksQuery.data ?? []).filter((b: any) => b.isActive);
   const bookById = new Map((booksQuery.data ?? []).map((b: any) => [b.id, b]));
   const filledBookLines = bookLines.filter((l) => l.bookId !== "" && (parseInt(l.qty || "0", 10) || 0) > 0);
@@ -310,6 +287,12 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
   const bookSuggested = bookSubtotal - bookDiscount;
   const bookAmountShown = bookAmountEdited ? bookAmount : bookSuggested ? String(bookSuggested) : "";
   const usableCoupons = (couponsQuery.data ?? []).filter((c: any) => c.isActive);
+
+  const bookAmountNum = parseInt(bookAmountShown || "0", 10) || 0;
+  const bookSplitQuery = trpc.mainLedger.previewBookSplit.useQuery(
+    { lines: filledBookLines.map((l) => ({ bookId: Number(l.bookId), qty: parseInt(l.qty, 10) })), amount: bookAmountNum },
+    { enabled: filledBookLines.length > 0 && bookAmountNum > 0 }
+  );
 
   function updateBookLine(key: string, patch: Partial<BookLine>) {
     setBookLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -337,7 +320,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
         note: formatNote(bookNote),
       });
       resetBookForm();
-      setSuccessMsg(`書籍收入已入帳：${fmt(amountToSave)} 全數留給公積金。`);
+      setSuccessMsg(`書籍收入已入帳：${fmt(amountToSave)}，依科目分給各科老師（行事曆全留公積金）。`);
     } catch (err: any) {
       setError(err?.message ?? "入帳失敗");
     }
@@ -673,7 +656,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                     setSuccessMsg(null);
                   }}
                 >
-                  <option value="course">線上課程（分潤精靈）</option>
+                  <option value="course">線上課程</option>
                   <option value="tutoring">小班家教</option>
                   <option value="book">書籍（含筆記本）</option>
                   <option value="other">其他收入</option>
@@ -683,12 +666,13 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
               {incomeMode === "course" ? (
               <>
               <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
-                課程收入分潤精靈：依《課程分潤與成本結構辦法》自動計算各人分潤。帳本會記錄「入帳金額」（售價 − 優惠碼折抵，尚未扣除行銷抽成），行銷抽成與所有分潤只會反映在各自的子記帳表。
+                線上課程：填實際收到的錢。公積金 {Math.round((settingsQuery.data?.settings.reserveRate ?? 0.1) * 1000) / 10}%、行政費{" "}
+                {Math.round((settingsQuery.data?.settings.adminFeeRate ?? 0.1) * 1000) / 10}%（團隊三人平分），其餘給課程的主理老師。
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="label">① 選擇課程</label>
+                  <label className="label">課程</label>
                   <SearchableSelect
                     options={onlineCourses.map((c: any) => ({ id: c.id, name: c.name }))}
                     value={wizardCourseId}
@@ -702,123 +686,43 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                     (() => {
                       const c: any = (coursesQuery.data ?? []).find((x: any) => x.id === wizardCourseId);
                       if (!c) return null;
-                      const original = c.originalPrice ?? c.basePrice;
                       return (
                         <div className="text-xs text-slate-400 mt-1">
-                          {c.teacherId ? `主理教師：${nameOf("teacher", c.teacherId)}` : "⚠ 尚未設定主理教師"}
-                          {" ・ "}
-                          {original ? `原價：${fmt(original)}` : "⚠ 尚未設定原價"}
+                          {c.teacherId ? `主理老師：${nameOf("teacher", c.teacherId)}` : "⚠ 還沒有對應的主理老師"}
+                          {c.originalPrice ? ` ・ 官網定價：${fmt(c.originalPrice)}` : ""}
                         </div>
                       );
                     })()}
                 </div>
+                <div>
+                  <label className="label">實收金額</label>
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    placeholder="例如 11250"
+                    value={wizardAmount}
+                    onChange={(e) => {
+                      setWizardAmount(e.target.value.replace(/[^\d]/g, ""));
+                      setPreview(null);
+                    }}
+                  />
+                </div>
                 <div className="sm:col-span-2">
-                  <NoteFields value={wizardNote} onChange={setWizardNote} fields={["buyer", "order", "memo"]} />
+                  <NoteFields value={wizardNote} onChange={setWizardNote} fields={["buyer", "order", "coupon", "memo"]} />
                 </div>
               </div>
 
-              <div>
-                <label className="label">② 這是幾年期的課程</label>
-                <select
-                  className="input sm:!w-56"
-                  value={wizardYears}
-                  onChange={(e) => {
-                    setWizardYears(Number(e.target.value) as 1 | 2 | 3);
-                    setPreview(null);
-                  }}
-                >
-                  <option value={1}>1 年期（基礎折數）</option>
-                  <option value={2}>2 年期（基礎折數 +1 折）</option>
-                  <option value={3}>3 年期（基礎折數 +2 折）</option>
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={wizardHasCoupon}
-                    onChange={(e) => {
-                      setWizardHasCoupon(e.target.checked);
-                      setPreview(null);
-                    }}
-                  />
-                  ③ 有使用優惠碼（折抵固定金額，將在管理面板「分潤設定」中設定的數字）
-                </label>
-
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={wizardHasReferral}
-                    onChange={(e) => {
-                      setWizardHasReferral(e.target.checked);
-                      setPreview(null);
-                    }}
-                  />
-                  ④ 有行銷／推廣人員（固定抽成金額，計入該人員的子記帳表）
-                </label>
-
-                {wizardHasReferral && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 rounded-lg p-3">
-                    <div>
-                      <label className="label">身份</label>
-                      <select
-                        className="input"
-                        value={wizardReferralType}
-                        onChange={(e) => {
-                          setWizardReferralType(e.target.value as "teacher" | "salesperson");
-                          setWizardReferralId("");
-                          setPreview(null);
-                        }}
-                      >
-                        <option value="teacher">老師</option>
-                        <option value="salesperson">推銷者</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="label">行銷／推廣人員（老師也可以是自己的推廣人）</label>
-                      <SearchableSelect
-                        options={((wizardReferralType === "teacher" ? teachersQuery.data : salespeopleQuery.data) ?? []).map(
-                          (p: any) => ({ id: p.id, name: p.name })
-                        )}
-                        value={wizardReferralId}
-                        onChange={(id) => {
-                          setWizardReferralId(id);
-                          setPreview(null);
-                        }}
-                        placeholder="搜尋姓名..."
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
               <button type="button" className="btn-secondary" onClick={handlePreviewCourseIncome} disabled={previewLoading}>
-                {previewLoading ? "計算中..." : "⑤ 預覽分配"}
+                {previewLoading ? "計算中..." : "預覽分配"}
               </button>
               {previewError && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{previewError}</div>}
 
               {preview && (
                 <div className="border border-slate-200 rounded-lg p-4 space-y-3">
-                  <div className="text-sm text-slate-700 space-y-1">
-                    <div>
-                      原價 {fmt(preview.originalPrice)} × {(preview.discountTier * 10).toFixed(1)}折 = 售價{" "}
-                      <span className="font-medium">{fmt(preview.price)}</span>
-                    </div>
-                    <div>
-                      帳本將記錄入帳金額：<span className="font-medium">{fmt(preview.amount)}</span>
-                      {wizardHasCoupon && <span className="text-slate-400"> （售價 {fmt(preview.price)} − 優惠碼折抵）</span>}
-                    </div>
-                    <div className="text-slate-400 text-xs">
-                      分配用淨額（扣除行銷抽成後）：{fmt(preview.netForSplit)} ・ 平台費（{fmt(preview.platformFee)}）已由每人團隊獎金與主理教師分潤分完
-                    </div>
-                  </div>
-
                   <table className="data-table w-full">
                     <thead>
                       <tr>
                         <th>對象</th>
-                        <th>身份</th>
                         <th>項目</th>
                         <th>金額</th>
                       </tr>
@@ -827,30 +731,20 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                       {preview.distributions.map((d: any, i: number) => (
                         <tr key={i}>
                           <td>{nameOf(d.type, d.recipientId)}</td>
-                          <td>{d.type === "teacher" ? "老師" : "推銷者"}</td>
-                          <td>
-                            {d.role === "owner" ? "課程主理分潤" : d.role === "team_bonus" ? "團隊獎金" : "推廣抽成"}
-                          </td>
+                          <td>{d.role === "owner" ? "課程主理分潤" : "行政費"}</td>
                           <td>{fmt(d.amount)}</td>
                         </tr>
                       ))}
+                      <tr>
+                        <td>公司</td>
+                        <td>公積金</td>
+                        <td>{fmt(preview.reserve)}</td>
+                      </tr>
                     </tbody>
                   </table>
-
-                  <div className="text-sm text-slate-600 flex flex-wrap gap-4">
-                    <span>已分配總額：{fmt(preview.totalDistributed)}</span>
-                    <span className="text-slate-400">
-                      平台留存（僅供參考，不入分錄，已扣除每月教材物流與訂閱成本估算 {fmt(preview.costPerCourse)}）：{fmt(preview.platformReserve)}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={handleConfirmCourseIncome}
-                    disabled={createCourseIncomeMutation.isPending}
-                  >
-                    {createCourseIncomeMutation.isPending ? "入帳中..." : "⑥ 確認入帳"}
+                  <div className="text-sm text-slate-600">帳本記錄：{fmt(preview.amount)}</div>
+                  <button type="button" className="btn-primary" onClick={handleConfirmCourseIncome} disabled={createCourseIncomeMutation.isPending}>
+                    {createCourseIncomeMutation.isPending ? "入帳中..." : "確認入帳"}
                   </button>
                 </div>
               )}
@@ -916,7 +810,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
               ) : incomeMode === "book" ? (
                 <>
                   <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
-                    書籍（含筆記本、組合包）：選書和數量會自動帶出定價，選了優惠碼會自動折扣。實收金額可以改（例如現場議價），書籍收入全數留給公積金，不分給任何人。書目和優惠碼在管理面板「書籍管理」「優惠碼管理」維護。
+                    書籍（含行事曆、組合包）：選書和數量會自動帶出定價，選了優惠碼會自動折扣，實收金額可以改。各科的書照「公積金＋行政費＋該科老師」分（物理蔡睿軒、化學王歆宜、生物潘彥宇、地科陳宥勳），行事曆全部留公積金。書目和優惠碼跟官網同步（官網對帳的同步書籤）。
                   </div>
                   <div className="space-y-2">
                     <label className="label">書目（可以複選，勾好再改數量）</label>
@@ -1022,8 +916,19 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                         </div>
                       )}
                       <div>
-                        帳本記錄（全數留給公積金）：<span className="font-medium">{fmt(parseInt(bookAmountShown || "0", 10) || 0)}</span>
+                        帳本記錄：<span className="font-medium">{fmt(parseInt(bookAmountShown || "0", 10) || 0)}</span>
                       </div>
+                      {(bookSplitQuery.data ?? []).map((g: any, i: number) => {
+                        const given = g.distributions.reduce((s: number, d: any) => s + d.amount, 0);
+                        return (
+                          <div key={i} className="text-xs text-slate-500">
+                            {g.personalLabel} {fmt(g.amount)}：
+                            {g.distributions.length
+                              ? g.distributions.map((d: any) => `${nameOf(d.type, d.recipientId)}${d.role === "owner" ? "" : "（行政費）"} ${fmt(d.amount)}`).join("、") + `、公積金 ${fmt(g.amount - given)}`
+                              : `全部留公積金`}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                   <button type="button" className="btn-primary" onClick={handleConfirmBook} disabled={createBookIncomeMutation.isPending}>

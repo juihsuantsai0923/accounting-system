@@ -231,7 +231,11 @@ export const revenueSettings = sqliteTable("revenue_settings", {
   materialCost: integer("material_cost").notNull().default(300), // 教材/物流成本（每套課程）
   monthlySubscription: integer("monthly_subscription").notNull().default(350), // 網站訂閱費（每月固定）
   estimatedMonthlySales: integer("estimated_monthly_sales").notNull().default(30), // 預估月銷量，用來分攤月固定成本
-  tutoringReserveRate: real("tutoring_reserve_rate").notNull().default(0.1), // 小班家教留給公積金的比例（0~1）
+  tutoringReserveRate: real("tutoring_reserve_rate").notNull().default(0.1), // （舊欄位，2026-10-29 起改用 reserve_rate）
+  // 2026-10-29 起只用這兩個：公積金比例（線上課程、書籍、小班家教）、行政費比例（線上課程、書籍，團隊三人平分）
+  // 上面其他欄位是舊的分潤精靈參數，保留欄位但不再使用
+  reserveRate: real("reserve_rate").notNull().default(0.1),
+  adminFeeRate: real("admin_fee_rate").notNull().default(0.1),
   updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
 });
 
