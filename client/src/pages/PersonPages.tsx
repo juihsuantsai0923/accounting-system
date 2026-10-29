@@ -3,7 +3,8 @@ import { NavLink, useParams } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { trpc } from "../lib/trpc";
 import { downloadTextFile } from "../lib/download";
-import { BRAND, GRID, INK_MUTED, fmt, fmtShort, niceTicks, tooltipStyle } from "../components/DashboardCharts";
+import { BRAND, GRID, INK_MUTED, MonthlyRevenueChart, fmt, fmtShort, niceTicks, tooltipStyle } from "../components/DashboardCharts";
+import { ReserveTrendChart } from "../components/DashboardAnalytics";
 
 /**
  * 老師／推銷者的個人頁：「儀表板」（累積分潤、已發放、每月發放圖）和「帳本」（子記帳表，唯讀，可篩選排序）。
@@ -59,6 +60,10 @@ export function PersonDashboardPage({ kind }: { kind: Kind }) {
   const [showTable, setShowTable] = useState(false);
   // 全公司三個總數（老師也看得到；推銷者沒有權限，就不顯示）
   const company = trpc.reports.companySummary.useQuery(undefined, { enabled: kind === "teacher", retry: false });
+  const revenue = trpc.reports.revenueEntries.useQuery(undefined, { enabled: kind === "teacher", retry: false });
+  const timeline = trpc.reports.timeline.useQuery(undefined, { enabled: kind === "teacher", retry: false });
+  const courses = trpc.courses.list.useQuery(undefined, { enabled: kind === "teacher" });
+  const courseNames = useMemo(() => new Set((courses.data ?? []).map((c: any) => c.name as string)), [courses.data]);
 
   // 每月已發放：補齊中間沒有發放的月份，時間軸才不會跳
   const monthly = useMemo(() => {
@@ -138,6 +143,12 @@ export function PersonDashboardPage({ kind }: { kind: Kind }) {
               <div className="text-xs text-slate-400 mt-1">收入留給公司的部分 − 公帳支出</div>
             </div>
           </div>
+          {revenue.data && timeline.data && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <MonthlyRevenueChart entries={revenue.data} courseNames={courseNames} />
+              <ReserveTrendChart timeline={timeline.data} />
+            </div>
+          )}
         </div>
       )}
 

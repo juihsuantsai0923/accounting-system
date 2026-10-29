@@ -126,7 +126,8 @@ export const reportsRouter = router({
    * 用來畫公積金走勢；跟儀表板的公積金卡片同一個算法，代墊也有算進欠款。
    */
   timeline: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.user.role === "teacher_self" || ctx.user.role === "salesperson_self") {
+    // 老師的個人儀表板也會畫公積金走勢（只有每月總數，看不到明細）
+    if (ctx.user.role === "salesperson_self") {
       throw new TRPCError({ code: "FORBIDDEN", message: "無權查看全公司統計" });
     }
     const events: { month: string; balanceDelta: number; owedDelta: number }[] = [];
@@ -176,6 +177,25 @@ export const reportsRouter = router({
    * 全公司三個總數：總收入、總支出、公積金增減（老師也看得到，但只有這三個數字，不給明細）。
    * 公積金增減＝每筆收入沒分給個人的部分 − 公帳支出（薪水撥款付的是本來就欠的錢，不算）。
    */
+  /** 月營業額圖用：每筆收入只給金額、類別、來源、日期（不含項目名稱、備註、買家），老師的個人儀表板也看得到 */
+  revenueEntries: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role === "salesperson_self") throw new TRPCError({ code: "FORBIDDEN", message: "無權查看" });
+    const rows = await ctx.db.select().from(mainLedger).where(isNull(mainLedger.deletedAt)).orderBy(asc(mainLedger.id));
+    return (rows as any[])
+      .filter((r) => r.type === "income")
+      .map((r) => ({
+        type: r.type as string,
+        amount: r.amount as number,
+        categoryName: r.categoryName as string,
+        incomeSource: r.incomeSource as string | null,
+        // breakdown 只留來源與金額，名稱換成類別（線上課程名稱本來就是公開的課名）
+        breakdown: r.breakdown
+          ? JSON.stringify(JSON.parse(r.breakdown).map((p: any) => ({ source: p.source, name: p.source === "course" ? p.name : "", categoryId: p.categoryId, amount: p.amount })))
+          : null,
+        createdAt: r.createdAt as number,
+      }));
+  }),
+
   companySummary: protectedProcedure.query(async ({ ctx }) => {
     if (ctx.user.role === "salesperson_self") throw new TRPCError({ code: "FORBIDDEN", message: "無權查看" });
     const rows = await ctx.db.select().from(mainLedger).where(isNull(mainLedger.deletedAt));
