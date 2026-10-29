@@ -60,7 +60,7 @@ export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orde
           <div>
             <h2 className="text-lg font-semibold text-slate-800">確認入帳（已收到錢）</h2>
             <p className="text-xs text-slate-500 mt-1">
-              每張訂單記成帳本一筆，裡面每個品項各自照規則分：小班家教、線上課程分給老師，書籍全留公積金。官網折扣依定價比例攤，運費算進書籍。
+              每張訂單記成帳本一筆，裡面每個品項各自照規則分：小班家教、線上課程分給老師，書籍依科目分給老師（行事曆留公積金）。官網優惠碼折扣只算在線上課程與書籍（小班家教不折），運費算進書籍。
             </p>
           </div>
           <button className="text-slate-400 hover:text-slate-600 text-xl leading-none" onClick={onClose} aria-label="關閉">

@@ -1,5 +1,5 @@
 import { isNull } from "drizzle-orm";
-import { books, courses, mainLedger } from "./schema";
+import { books, coupons, courses, mainLedger } from "./schema";
 import { computeBookIncome, computeCourseIncome, computeTutoringIncome, splitBookIncome, CourseIncomeError } from "./revenueCalc";
 import { combineIncome, type IncomePart } from "./combineIncome";
 import { formatNote, parseNote } from "./noteFormat";
@@ -9,7 +9,8 @@ import { formatNote, parseNote } from "./noteFormat";
  *   小班家教（課程名稱＝官網品名）→ 扣公積金比例後給主理教師
  *   線上課程（「數學工具先修課程（三年方案）」這種）→ 走分潤精靈，金額用官網實付
  *   書籍 → 依科目：公積金＋行政費＋該科老師；行事曆（筆記本）與運費全數留給公積金
- * 官網折扣依各品項定價比例攤；運費（實付比「定價−折扣」多出來的）算進書籍那筆。
+ * 官網折扣（優惠碼）只算在能用優惠碼的品項：線上課程、書籍；小班家教不能用優惠碼，不攤折扣（見 allocateDiscount）。
+ * 運費（實付比「定價−折扣」多出來的）算進書籍那筆。
  * 備註寫「買家：姓名｜官網訂單：編號」，對帳就會自動配到這張訂單，也用來避免重複入帳。
  */
 
@@ -74,8 +75,43 @@ function allocate(prices: number[], pool: number) {
   return parts;
 }
 
+/**
+ * 折扣攤到哪些品項：
+ *   1. 只攤到能用優惠碼的品項（線上課程、書籍）；小班家教不攤。全部都是小班家教、或可攤的品項不夠扣時，才攤到全部。
+ *   2. 照官網的算法還原：每個品項折扣＝round(計價基準 × 優惠碼比例)，線上課程的計價基準是課程原價（官網這樣算，例如
+ *      數學工具一年方案 9000 元，官網用原價 15000 算 5%）、書籍是售價。拿記帳系統裡的優惠碼比例逐一試，總和剛好等於官網折扣就用它。
+ *   3. 都對不上就依售價比例攤（四捨五入的零頭給最貴的那一項）。
+ * 回傳要寫進備註的說明（對上優惠碼時）。
+ */
+function allocateDiscount(lines: PlannedLine[], pool: number, catalog: Awaited<ReturnType<typeof loadCatalog>>): string | null {
+  lines.forEach((l) => (l.amount = l.price));
+  if (pool <= 0) return null;
+  const eligible = lines.filter((l) => l.kind === "course" || l.kind === "book");
+  const target = eligible.length && eligible.reduce((s, l) => s + l.price, 0) >= pool ? eligible : lines;
+  if (target === eligible) {
+    const base = (l: PlannedLine) => {
+      if (l.kind !== "course") return l.price;
+      const c = catalog.courses.find((x: any) => x.id === l.targetId);
+      return Math.max(l.price, c?.originalPrice ?? 0);
+    };
+    const rates: number[] = [...new Set<number>(catalog.coupons.map((c: any) => c.discountRate as number))].sort((a, b) => a - b);
+    for (const r of rates) {
+      const parts = target.map((l) => Math.round(base(l) * r));
+      if (parts.reduce((s, x) => s + x, 0) === pool && target.every((l, i) => parts[i] < l.price)) {
+        target.forEach((l, i) => (l.amount -= parts[i]));
+        const skipped = lines.some((l) => l.kind === "tutoring") ? "（小班家教不折）" : "";
+        return `優惠碼 ${Math.round(r * 1000) / 10}% 折 ${pool.toLocaleString()} 元${skipped}`;
+      }
+    }
+  }
+  const parts = allocate(target.map((l) => l.price), pool);
+  target.forEach((l, i) => (l.amount -= parts[i]));
+  return null;
+}
+
 export async function loadCatalog(db: any) {
   return {
+    coupons: await db.select().from(coupons),
     courses: await db.select().from(courses),
     books: (await db.select().from(books)).filter((b: any) => b.isActive),
     ledger: await db.select({ note: mainLedger.note }).from(mainLedger).where(isNull(mainLedger.deletedAt)),
@@ -107,13 +143,12 @@ export async function planOrder(db: any, order: any, overrides: Record<number, L
   const extra = order.total - (listSum - order.discount);
   const discountPool = order.discount + Math.max(0, -extra);
   const shipping = Math.max(0, extra);
-  const parts = allocate(counted.map((l) => l.price), discountPool);
-  counted.forEach((l, i) => (l.amount = l.price - parts[i]));
+  const couponNote = allocateDiscount(counted, discountPool, catalog);
 
   if (lines.some((l) => l.kind === "unknown")) errors.push("有品項對不到記帳系統的課程或書目，請選對應項目或設成不入帳");
 
   const entries: IncomePart[] = [];
-  const noteBits: string[] = [];
+  const noteBits: string[] = couponNote ? [couponNote] : [];
   const bookLines = counted.filter((l) => l.kind === "book");
   const others = counted.filter((l) => l.kind === "tutoring" || l.kind === "course");
   // 沒有書可以放運費時，加到最後一門課
