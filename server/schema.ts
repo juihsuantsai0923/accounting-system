@@ -14,7 +14,7 @@ export const users = sqliteTable(
     email: text("email").notNull(),
     passwordHash: text("password_hash").notNull(),
     name: text("name").notNull(),
-    // super_admin / finance_staff / viewer / teacher_self / salesperson_self
+    // super_admin / finance_staff / teacher_self / salesperson_self
     role: text("role").notNull().default("finance_staff"),
     linkedTeacherId: integer("linked_teacher_id"),
     linkedSalespersonId: integer("linked_salesperson_id"),

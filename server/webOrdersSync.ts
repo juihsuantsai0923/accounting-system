@@ -10,6 +10,9 @@ import { SUBJECT_TEACHERS } from "./revenueCalc";
  * Express 與 Cloudflare Worker 共用（db 由呼叫端傳入）。
  */
 export const SYNC_KEY_NAME = "web_orders_sync";
+/** 官網伺服器自動推送用的金鑰（跟書籤分開，重新產生其中一把不會影響另一把） */
+export const PUSH_KEY_NAME = "web_orders_push";
+export type SyncKeyName = typeof SYNC_KEY_NAME | typeof PUSH_KEY_NAME;
 
 export async function sha256Hex(text: string) {
   const buf = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -21,9 +24,9 @@ export function newSyncKey() {
   return "lxs_" + [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export async function verifySyncKey(db: any, key: string | null) {
+export async function verifySyncKey(db: any, key: string | null, name: SyncKeyName = SYNC_KEY_NAME) {
   if (!key) return false;
-  const [row] = await db.select().from(integrationKeys).where(eq(integrationKeys.name, SYNC_KEY_NAME)).limit(1);
+  const [row] = await db.select().from(integrationKeys).where(eq(integrationKeys.name, name)).limit(1);
   if (!row) return false;
   return row.keyHash === (await sha256Hex(key));
 }
@@ -99,7 +102,7 @@ export async function upsertCatalog(db: any, cat: z.infer<typeof catalogPayload>
 }
 
 /** 寫入／更新訂單快照：官網的欄位以最新為準，記帳這邊的手動標記（manual_status、manual_note）保留 */
-export async function upsertWebOrders(db: any, rows: z.infer<typeof orderRow>[]) {
+export async function upsertWebOrders(db: any, rows: z.infer<typeof orderRow>[], keyName: SyncKeyName = SYNC_KEY_NAME) {
   const now = Date.now();
   for (const [no, at, buyer, total, discount, status, tab, items] of rows) {
     const orderedAt = new Date(`${at}+08:00`).getTime();
@@ -112,7 +115,7 @@ export async function upsertWebOrders(db: any, rows: z.infer<typeof orderRow>[])
         set: { orderedAt, buyer, total, discount, statusLabel: status, tab, items: itemsJson, syncedAt: now },
       });
   }
-  await db.update(integrationKeys).set({ lastUsedAt: now }).where(eq(integrationKeys.name, SYNC_KEY_NAME));
+  await db.update(integrationKeys).set({ lastUsedAt: now }).where(eq(integrationKeys.name, keyName));
   return { count: rows.length, syncedAt: now };
 }
 
@@ -126,3 +129,75 @@ export async function handleSyncRequest(db: any, key: string | null, body: unkno
   return [200, { ...result, catalog }];
 }
 
+
+/**
+ * 官網伺服器自動推送（/api/web-orders/push）：官網有新訂單、訂單狀態改變、商品改變時主動送過來。
+ * 格式是給工程師看得懂的物件（規格見 官網自動同步規格.md），這裡轉成跟書籤一樣的格式再寫入。
+ * 驗證用 Authorization: Bearer <自動同步金鑰>。
+ */
+const pushOrder = z.object({
+  orderNo: z.string().regex(/^LX-\d{8}-\d{3}$/),
+  orderedAt: z.string().min(10).max(40),
+  buyer: z.string().min(1).max(100),
+  total: z.number().int().min(0),
+  discount: z.number().int().min(0).default(0),
+  status: z.enum(["pending_payment", "paid", "completed", "cancelled"]),
+  statusLabel: z.string().min(1).max(50).optional(),
+  items: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(300),
+        price: z.number().int().min(0),
+        preorder: z.boolean().default(false),
+        bundle: z.boolean().default(false),
+      })
+    )
+    .max(100),
+});
+const pushCatalog = z.object({
+  courses: z.array(z.object({ name: z.string().min(1).max(200), category: z.enum(["online", "tutoring"]), subject: z.string().max(20), price: z.number().int().min(0) })).max(500).optional(),
+  books: z.array(z.object({ name: z.string().min(1).max(200), kind: z.enum(["book", "workbook", "bundle", "notebook"]), price: z.number().int().min(0) })).max(1000).optional(),
+  coupons: z
+    .array(z.object({ code: z.string().min(1).max(50), discountRate: z.number().min(0).max(1), validUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(), active: z.boolean() }))
+    .max(500)
+    .optional(),
+});
+export const pushPayload = z.object({ orders: z.array(pushOrder).max(5000).default([]), catalog: pushCatalog.optional() });
+
+const DEFAULT_LABEL = { pending_payment: "待付款", paid: "已付款", completed: "訂單完成", cancelled: "已取消" } as const;
+
+/** 物件格式 → 書籤的陣列格式。時間一律換成台灣時間；對帳靠「待付款」這個字判斷沒付錢，所以已付款的訂單不能用這個字 */
+export function pushOrderToRow(o: z.infer<typeof pushOrder>): z.infer<typeof orderRow> {
+  const ms = Date.parse(/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(o.orderedAt) ? o.orderedAt : `${o.orderedAt}+08:00`);
+  if (Number.isNaN(ms)) throw new Error(`訂單 ${o.orderNo} 的 orderedAt 看不懂：${o.orderedAt}`);
+  const at = new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 19);
+  let label = o.statusLabel ?? DEFAULT_LABEL[o.status];
+  if (o.status === "pending_payment") label = "待付款";
+  else if (label === "待付款") label = DEFAULT_LABEL[o.status];
+  const tab = o.status === "completed" ? "completed" : o.status === "cancelled" ? "cancelled" : "pending";
+  return [o.orderNo, at, o.buyer, o.total, o.discount, label, tab, o.items.map((i) => [i.name, i.price, i.preorder ? 1 : 0, i.bundle ? 1 : 0] as [string, number, 0 | 1, 0 | 1])];
+}
+
+/** /api/web-orders/push 的處理：回傳 [狀態碼, JSON] */
+export async function handlePushRequest(db: any, authorization: string | null, body: unknown): Promise<[number, unknown]> {
+  const key = authorization?.match(/^Bearer\s+(\S+)$/i)?.[1] ?? null;
+  if (!(await verifySyncKey(db, key, PUSH_KEY_NAME))) return [401, { error: "自動同步金鑰不正確" }];
+  const parsed = pushPayload.safeParse(body);
+  if (!parsed.success) return [400, { error: "資料格式不對", detail: parsed.error.issues.slice(0, 5) }];
+  let rows: z.infer<typeof orderRow>[];
+  try {
+    rows = parsed.data.orders.map(pushOrderToRow);
+  } catch (e: any) {
+    return [400, { error: e.message }];
+  }
+  const result = await upsertWebOrders(db, rows, PUSH_KEY_NAME);
+  const c = parsed.data.catalog;
+  const catalog = c
+    ? await upsertCatalog(db, {
+        courses: (c.courses ?? []).map((x) => [x.name, x.category, x.subject, x.price] as [string, "online" | "tutoring", string, number]),
+        books: (c.books ?? []).map((x) => [x.name, x.kind, x.price] as [string, "book" | "workbook" | "bundle" | "notebook", number]),
+        coupons: (c.coupons ?? []).map((x) => [x.code, x.discountRate, x.validUntil, x.active] as [string, number, string | null, boolean]),
+      })
+    : null;
+  return [200, { ok: true, ...result, catalog }];
+}

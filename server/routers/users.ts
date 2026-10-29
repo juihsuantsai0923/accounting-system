@@ -7,7 +7,7 @@ import { hashPassword } from "../auth";
 import { writeAudit } from "../ledger";
 import { toHalfWidth } from "../textNormalize";
 
-const roleSchema = z.enum(["super_admin", "finance_staff", "viewer", "teacher_self", "salesperson_self"]);
+const roleSchema = z.enum(["super_admin", "finance_staff", "teacher_self", "salesperson_self"]);
 
 // 先把全形字元轉半形再驗證格式，避免中文輸入法全形模式打出來的 email（例如 "＠" 而不是 "@"）
 // 被 .email() 擋下來卻只顯示看不懂的 "Invalid email"。

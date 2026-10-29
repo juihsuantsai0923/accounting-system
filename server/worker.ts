@@ -3,7 +3,7 @@ import { appRouter } from "./routers/index";
 import { createD1Context, type Env } from "./context.d1";
 import { ensureAdmin } from "./ensureAdmin";
 import { ensureSalaryExpenseTypes } from "./ensureSalaryExpenseTypes";
-import { handleSyncRequest } from "./webOrdersSync";
+import { handlePushRequest, handleSyncRequest } from "./webOrdersSync";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
 
@@ -41,6 +41,18 @@ export default {
         return withCors(Response.json({ error: "資料不是 JSON" }, { status: 400 }));
       }
       const [status, payload] = await handleSyncRequest(drizzle(env.DB, { schema }), request.headers.get("x-sync-key"), body);
+      return withCors(Response.json(payload, { status }));
+    }
+
+    // 官網伺服器自動推送（新訂單、狀態改變、商品改變），用自動同步金鑰（Bearer）驗證
+    if (url.pathname === "/api/web-orders/push" && request.method === "POST") {
+      let body: unknown = null;
+      try {
+        body = await request.json();
+      } catch {
+        return withCors(Response.json({ error: "資料不是 JSON" }, { status: 400 }));
+      }
+      const [status, payload] = await handlePushRequest(drizzle(env.DB, { schema }), request.headers.get("authorization"), body);
       return withCors(Response.json(payload, { status }));
     }
 

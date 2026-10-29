@@ -108,7 +108,7 @@ npm run cf:pages:deploy
 
 - **原有功能**：教師/推銷者/課程/支出類型管理、母記帳表多方分配、金額整數化、分潤比例與原金額欄位、餘額自動計算與級聯刪除（改為軟刪除＋可還原）。
 - **代墊款機制**：`advancePayments.create` 建立代墊時只寫入子記帳表（`sourceType: "advance"`），不動母記帳表；核銷有兩條路徑——併入正式撥款（`mainLedger.create` 的 `distributions[].settledAdvanceIds`）或獨立核銷（`advancePayments.settle`），詳細設計請對照《架構重新設計文檔》第二節。
-- **權限分層**：`super_admin` / `finance_staff` / `viewer` / `teacher_self` / `salesperson_self` 五種角色，教師/推銷者本人登入時後端會強制鎖定查詢範圍為自己的資料。
+- **權限分層**：`super_admin` / `finance_staff` / `teacher_self` / `salesperson_self` 四種角色，教師/推銷者本人登入時後端會強制鎖定查詢範圍為自己的資料。
 - **稽核軌跡**：所有新增/修改/刪除/核銷操作都寫入 `audit_log` 表（目前僅後端記錄，尚無前端檢視頁面，可作為下一步擴充）。
 - **CSV 對帳表下載**：母記帳表、教師/推銷者對帳單、代墊記錄、應付總覽，四個頁面都有「下載 CSV」按鈕，可直接匯出成 Excel 看得懂的 CSV（含 UTF-8 BOM，中文不會亂碼）。教師/推銷者本人登入時只能匯出自己的對帳單。
 

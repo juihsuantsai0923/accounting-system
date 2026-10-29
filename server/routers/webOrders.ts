@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, staffProcedure, adminProcedure } from "../trpc";
 import { courses, integrationKeys, mainLedger, webOrders } from "../schema";
-import { SYNC_KEY_NAME, newSyncKey, sha256Hex } from "../webOrdersSync";
+import { PUSH_KEY_NAME, SYNC_KEY_NAME, newSyncKey, sha256Hex } from "../webOrdersSync";
 import { asc, eq, inArray, isNull } from "drizzle-orm";
 import { writeAudit } from "../ledger";
 import { insertIncome } from "./mainLedger";
@@ -35,6 +35,9 @@ async function planOrders(db: any, input: z.infer<typeof recordInput>) {
   }
   return plans;
 }
+
+const keyKindInput = z.object({ kind: z.enum(["bookmark", "auto"]) }).optional();
+const keyNameOf = (kind?: "bookmark" | "auto") => (kind === "auto" ? PUSH_KEY_NAME : SYNC_KEY_NAME);
 
 const DAY = 24 * 3600 * 1000;
 /** 股東投入（例如創始基金）不是賣東西的收入，不跟官網訂單對 */
@@ -163,14 +166,15 @@ export const webOrdersRouter = router({
     };
   }),
 
-  /** 官網同步金鑰有沒有設定、最後一次使用時間（不回傳金鑰本身） */
-  syncKeyStatus: staffProcedure.query(async ({ ctx }) => {
-    const [row] = await ctx.db.select().from(integrationKeys).where(eq(integrationKeys.name, SYNC_KEY_NAME)).limit(1);
+  /** 官網同步金鑰有沒有設定、最後一次使用時間（不回傳金鑰本身）。bookmark＝書籤（手動同步），auto＝官網伺服器自動推送 */
+  syncKeyStatus: staffProcedure.input(keyKindInput).query(async ({ ctx, input }) => {
+    const [row] = await ctx.db.select().from(integrationKeys).where(eq(integrationKeys.name, keyNameOf(input?.kind))).limit(1);
     return row ? { exists: true, createdAt: row.createdAt, lastUsedAt: row.lastUsedAt } : { exists: false, createdAt: null, lastUsedAt: null };
   }),
 
   /** 產生新的官網同步金鑰（舊的立即失效）。金鑰只在這次回傳，資料庫只存 SHA-256 */
-  generateSyncKey: adminProcedure.mutation(async ({ ctx }) => {
+  generateSyncKey: adminProcedure.input(keyKindInput).mutation(async ({ ctx, input }) => {
+    const SYNC_KEY_NAME = keyNameOf(input?.kind);
     const key = newSyncKey();
     const keyHash = await sha256Hex(key);
     const now = Date.now();

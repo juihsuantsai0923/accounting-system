@@ -69,7 +69,7 @@ function BookmarkletLink({ href }: { href: string }) {
 function SyncPanel({ syncedAt, onRefresh }: { syncedAt: number | null; onRefresh: () => void }) {
   const { user } = useAuth();
   const utils = trpc.useUtils();
-  const statusQuery = trpc.webOrders.syncKeyStatus.useQuery();
+  const statusQuery = trpc.webOrders.syncKeyStatus.useQuery({ kind: "bookmark" });
   const generate = trpc.webOrders.generateSyncKey.useMutation({ onSuccess: () => utils.webOrders.syncKeyStatus.invalidate() });
   const [newKey, setNewKey] = useState<string | null>(null);
   const [showSetup, setShowSetup] = useState(false);
@@ -89,7 +89,7 @@ function SyncPanel({ syncedAt, onRefresh }: { syncedAt: number | null; onRefresh
     <div className="card space-y-3">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="font-medium text-brand-700">和官網同步</h2>
+          <h2 className="font-medium text-brand-700">手動同步（書籤）</h2>
           <p className="text-xs text-slate-500 mt-0.5">
             {syncedAt ? `上次同步：${fmtTime(syncedAt)}` : "還沒同步過"}
             {statusQuery.data?.lastUsedAt ? `（書籤最後使用：${fmtTime(statusQuery.data.lastUsedAt)}）` : ""}
@@ -160,10 +160,72 @@ function SyncPanel({ syncedAt, onRefresh }: { syncedAt: number | null; onRefresh
   );
 }
 
+/** 官網自動同步：官網伺服器有新訂單、狀態或商品改變時主動推送過來（金鑰給官網工程師設定） */
+function AutoSyncPanel() {
+  const { user } = useAuth();
+  const utils = trpc.useUtils();
+  const statusQuery = trpc.webOrders.syncKeyStatus.useQuery({ kind: "auto" }, { refetchInterval: 60_000 });
+  const generate = trpc.webOrders.generateSyncKey.useMutation({ onSuccess: () => utils.webOrders.syncKeyStatus.invalidate() });
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const isAdmin = user?.role === "super_admin";
+  const st = statusQuery.data;
+  const endpoint = `${API_BASE || window.location.origin}/api/web-orders/push`;
+
+  return (
+    <div className="card space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="font-medium text-brand-700">官網自動同步</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {!st?.exists
+              ? "還沒設定：產生金鑰後交給官網工程師"
+              : st.lastUsedAt
+                ? `運作中・官網最後推送：${fmtTime(st.lastUsedAt)}`
+                : "金鑰已產生，等官網第一次推送"}
+          </p>
+        </div>
+        {isAdmin && (
+          <button
+            className="btn-secondary"
+            disabled={generate.isPending}
+            onClick={async () => {
+              if (st?.exists && !confirm("重新產生後，官網目前用的金鑰會立刻失效，要請工程師換成新的。確定嗎？")) return;
+              const r = await generate.mutateAsync({ kind: "auto" });
+              setNewKey(r.key);
+              setCopied(false);
+            }}
+          >
+            {generate.isPending ? "產生中..." : st?.exists ? "重新產生金鑰" : "產生自動同步金鑰"}
+          </button>
+        )}
+      </div>
+      {newKey && (
+        <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 space-y-2 text-sm">
+          <div className="text-amber-800">把這兩項交給官網工程師（金鑰只會出現這一次）：</div>
+          <div className="font-mono text-xs break-all bg-white rounded px-2 py-1">網址：{endpoint}</div>
+          <div className="font-mono text-xs break-all bg-white rounded px-2 py-1">金鑰：{newKey}</div>
+          <button
+            className="btn-secondary"
+            onClick={async () => {
+              await navigator.clipboard.writeText(`LEVIAX_ACCOUNTING_PUSH_URL=${endpoint}\nLEVIAX_ACCOUNTING_PUSH_KEY=${newKey}`);
+              setCopied(true);
+            }}
+          >
+            {copied ? "已複製" : "複製"}
+          </button>
+        </div>
+      )}
+      <p className="text-xs text-slate-500">官網有新訂單、付款狀態改變、課程／書籍／優惠碼改變時會自動送過來，這頁每分鐘自動更新。自動同步沒設定好或漏掉時，用下面的書籤手動同步。</p>
+    </div>
+  );
+}
+
 export default function ReconcilePage() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
-  const query = trpc.webOrders.reconcile.useQuery();
+  // 官網會自動推送新訂單，這頁每分鐘自己重新整理一次
+  const query = trpc.webOrders.reconcile.useQuery(undefined, { refetchInterval: 60_000 });
   const setManual = trpc.webOrders.setManualStatus.useMutation({ onSuccess: () => utils.webOrders.reconcile.invalidate() });
   const [filter, setFilter] = useState<Filter>("action");
   const [params, setParams] = useSearchParams();
@@ -217,6 +279,7 @@ export default function ReconcilePage() {
         </div>
       )}
 
+      {manage && <AutoSyncPanel />}
       {manage && <SyncPanel syncedAt={data?.syncedAt ?? null} onRefresh={() => query.refetch()} />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

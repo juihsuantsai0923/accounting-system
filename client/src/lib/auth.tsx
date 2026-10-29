@@ -5,7 +5,7 @@ interface AuthUser {
   id: number;
   email: string;
   name: string;
-  role: "super_admin" | "finance_staff" | "viewer" | "teacher_self" | "salesperson_self";
+  role: "super_admin" | "finance_staff" | "teacher_self" | "salesperson_self";
   linkedTeacherId: number | null;
   linkedSalespersonId: number | null;
   /** 原本的角色（切換成老師身分時 role 會是 teacher_self，這裡仍是 super_admin） */
@@ -67,8 +67,7 @@ export function useAuth() {
 
 export const ROLE_LABELS: Record<string, string> = {
   super_admin: "系統管理員",
-  finance_staff: "財務人員（唯讀）",
-  viewer: "唯讀人員",
+  finance_staff: "財務人員",
   teacher_self: "教師本人",
   salesperson_self: "推銷者本人",
 };

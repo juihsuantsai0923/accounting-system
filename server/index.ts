@@ -8,7 +8,7 @@ import { createContext } from "./context";
 import { ensureAdmin } from "./ensureAdmin";
 import { ensureSalaryExpenseTypes } from "./ensureSalaryExpenseTypes";
 import { db } from "./db";
-import { handleSyncRequest } from "./webOrdersSync";
+import { handlePushRequest, handleSyncRequest } from "./webOrdersSync";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,6 +24,11 @@ async function main() {
 
   app.post("/api/web-orders/sync", async (req, res) => {
     const [status, payload] = await handleSyncRequest(db, req.header("x-sync-key") ?? null, req.body);
+    res.status(status).json(payload);
+  });
+
+  app.post("/api/web-orders/push", async (req, res) => {
+    const [status, payload] = await handlePushRequest(db, req.header("authorization") ?? null, req.body);
     res.status(status).json(payload);
   });
 

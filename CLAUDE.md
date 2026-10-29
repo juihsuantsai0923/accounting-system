@@ -44,7 +44,6 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 |---|---|
 | `super_admin` | 全部權限（`adminProcedure`） |
 | `finance_staff` | 可新增／刪除帳務（`staffProcedure`） |
-| `viewer` | 唯讀，看得到全部，沒有編輯按鈕（前端用 `canManage()` 判斷） |
 | `teacher_self` | 看自己的子記帳表＋**母記帳表（唯讀）**，看不到儀表板、應付總覽、每人統計 |
 | `salesperson_self` | **只能看自己的子記帳表** |
 
@@ -109,6 +108,7 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - **立即同步按鈕（書籤小工具）**（2026-10-27）：對帳頁「立即同步官網訂單」會開官網訂單頁，使用者在那個分頁點書籤「⇅ 同步到記帳」→ 書籤載入 `client/public/web-orders-sync.js`（Pages 提供），用隱藏 iframe 讀三個分頁、POST 到 Worker 的 `/api/web-orders/sync`（Express 版同路徑）→ 回到 `/reconcile?synced=1`。
   - 驗證用「官網同步金鑰」（`integration_keys` 表、migration 0008，只存 SHA-256；`webOrders.generateSyncKey` 限 super_admin，重新產生舊書籤就失效）。金鑰只能寫入訂單快照，不能讀帳務。共用邏輯在 `server/webOrdersSync.ts`。
   - 官網改版導致讀不到時，改 `web-orders-sync.js` 的解析就好，不用使用者重拖書籤（書籤只帶設定、每次都載入最新腳本）。官網目前沒有 CSP，外部腳本能載入；哪天官網加了 CSP 就要改成把腳本整段塞進書籤。
+- **官網自動同步**（2026-10-29）：官網伺服器在新訂單／狀態改變／商品改變時 POST 到 `/api/web-orders/push`（`Authorization: Bearer <自動同步金鑰>`，金鑰名 `web_orders_push`，跟書籤金鑰分開）。物件格式由 `handlePushRequest` 轉成書籤的陣列格式再走 `upsertWebOrders`／`upsertCatalog`；商品清單每份都是整份（沒送的那份不動）。規格給官網工程師：`docs/官網自動同步規格.md`。對帳頁上方「官網自動同步」顯示最後推送時間、產生金鑰；頁面每分鐘自動重新整理。書籤手動同步保留當備援。
 - **創始基金是要還的借款**（使用者 2026-10-27 確認）：記成收入並分回出資人子帳＝公司欠他；不算營業額；`personStats.loan` 會單獨列出，欠薪提醒會扣掉這部分。
 - 儀表板圖表（`client/src/components/DashboardCharts.tsx`，recharts）：月營業額（依收入來源堆疊，舊記錄用類別名稱推回來源）、每人營業額（`reports.personStats` 的 earned）、每人欠薪（balance）。「創始基金」視為股東投入，不算營業額。配色照 dataviz 規範驗證過，黃／綠對比不足所以附「顯示表格」。
 
