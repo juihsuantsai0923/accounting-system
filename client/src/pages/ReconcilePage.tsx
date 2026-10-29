@@ -396,6 +396,9 @@ export default function ReconcilePage() {
                         {r.label}
                       </span>
                       {o.message && <div className="text-xs text-slate-500 mt-1 whitespace-normal max-w-xs">{o.message}</div>}
+                      {o.result === "manual" && !o.ledgerIds.length && (
+                        <div className="text-xs text-red-600 mt-1 whitespace-normal max-w-xs">⚠ 帳本裡沒有這張的錢；要入帳請先「取消標記」再按「入帳」</div>
+                      )}
                     </td>
                     <td className="whitespace-nowrap text-sm">
                       {o.ledgerIds.length ? (
@@ -418,9 +421,21 @@ export default function ReconcilePage() {
                         ) : (
                           NEEDS_ACTION.has(o.result) && (
                             <>
+                              {o.result === "missing" ? (
+                                // 帳本裡沒有這張的錢：主按鈕是入帳，不給「確認無誤」（按了不會記錢）
+                                <button
+                                  className="btn-primary"
+                                  onClick={() => {
+                                    setSelected(new Set([o.orderNo]));
+                                    setDialogOpen(true);
+                                  }}
+                                >
+                                  入帳
+                                </button>
+                              ) : (
                               <button
                                 className="btn-secondary"
-                                title="已經人工核對過，這張沒問題"
+                                title="已經人工核對過，這張沒問題（不會記錢）"
                                 onClick={() => {
                                   const note = prompt("備註（選填，例如：折扣已另記支出）") ?? undefined;
                                   setManual.mutate({ orderNo: o.orderNo, status: "matched", note: note || undefined });
@@ -428,6 +443,7 @@ export default function ReconcilePage() {
                               >
                                 確認無誤
                               </button>
+                              )}
                               <button
                                 className="btn-secondary"
                                 title="這張訂單不需要記帳（例如測試、贈送）"
