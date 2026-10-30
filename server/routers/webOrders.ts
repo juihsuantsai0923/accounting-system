@@ -6,7 +6,7 @@ import { PUSH_KEY_NAME, SYNC_KEY_NAME, newSyncKey, sha256Hex } from "../webOrder
 import { asc, eq, inArray, isNull } from "drizzle-orm";
 import { writeAudit } from "../ledger";
 import { insertIncome } from "./mainLedger";
-import { loadCatalog, planOrder, type LineOverride } from "../webOrderRecord";
+import { loadCatalog, noteHasOrder, planOrder, type LineOverride } from "../webOrderRecord";
 
 const overridesInput = z
   .array(
@@ -76,17 +76,26 @@ export const webOrdersRouter = router({
       (e: any) => e.type === "income" && !NON_REVENUE_CATEGORIES.has(e.categoryName)
     );
     const claimed = new Set<number>();
+    // 備註寫了「官網訂單：編號」的記錄，直接配給那張訂單，不讓別張（例如同一位買家已取消的訂單）搶走
+    const linked = new Map<string, any[]>();
+    for (const o of orders as any[]) {
+      const hits = ledger.filter((e: any) => noteHasOrder(e.note, o.orderNo));
+      if (hits.length) {
+        linked.set(o.orderNo, hits);
+        hits.forEach((e: any) => claimed.add(e.id));
+      }
+    }
     const courseNames = new Set((await ctx.db.select({ name: courses.name }).from(courses)).map((c: any) => c.name));
 
     const result = orders.map((o: any) => {
       const items: OrderItem[] = JSON.parse(o.items);
       const base = { ...o, items, ledgerIds: [] as number[], ledgerAmount: 0, message: "" };
       // received＝在記帳系統按過「確認入帳（已收到錢）」，官網還沒改狀態也當已付款
-      const paid = o.tab === "completed" || (o.tab === "pending" && o.statusLabel !== "待付款") || o.manualStatus === "received";
+      const paid = o.tab !== "cancelled" && (o.tab === "completed" || o.statusLabel !== "待付款" || o.manualStatus === "received");
 
       // 先把可能對應的記帳記錄配掉（就算手動標記，也要避免同一筆記帳被別張訂單用）
-      let picked: any[] = [];
-      if (paid) {
+      let picked: any[] = linked.get(o.orderNo) ?? [];
+      if (paid && !picked.length) {
         const cands = ledger
           .filter(
             (e: any) =>
@@ -109,7 +118,12 @@ export const webOrdersRouter = router({
 
       if (o.manualStatus === "ignored") return { ...withLedger, result: "ignored" as ReconcileResult, message: o.manualNote ?? "已標記不需入帳" };
       if (o.manualStatus === "matched") return { ...withLedger, result: "manual" as ReconcileResult, message: o.manualNote ?? "已人工確認" };
-      if (o.tab === "cancelled") return { ...withLedger, result: "cancelled" as ReconcileResult };
+      if (o.tab === "cancelled")
+        return {
+          ...withLedger,
+          result: (picked.length ? "mismatch" : "cancelled") as ReconcileResult,
+          message: picked.length ? "官網已取消，但帳本有這張的入帳記錄；確認是否要退款或刪除那筆記錄" : "",
+        };
       if (!paid) return { ...withLedger, result: "receivable" as ReconcileResult, message: "官網待付款" };
       if (!picked.length) return { ...withLedger, result: "missing" as ReconcileResult, message: "官網已付款，母記帳表找不到這位買家的收入" };
       if (ledgerAmount === o.total) return { ...withLedger, result: "matched" as ReconcileResult };
