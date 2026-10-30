@@ -31,9 +31,16 @@ const distributionInput = z.object({
   settledAdvanceIds: z.array(z.number()).optional(),
 });
 
+/**
+ * 目前餘額＝所有沒刪除記錄的收入－支出（每次重新加總）。
+ * 不直接拿上一筆存的 balance：如果有記錄在系統外被刪掉（沒經過 delete 重算），上一筆的 balance 會過期，新記錄就會跟著錯。
+ */
 async function getLatestBalance(db: any) {
-  const rows = await db.select().from(mainLedger).where(isNull(mainLedger.deletedAt)).orderBy(desc(mainLedger.id)).limit(1);
-  return rows[0]?.balance ?? 0;
+  const rows: { type: string; amount: number }[] = await db
+    .select({ type: mainLedger.type, amount: mainLedger.amount })
+    .from(mainLedger)
+    .where(isNull(mainLedger.deletedAt));
+  return rows.reduce((s, r) => s + (r.type === "income" ? r.amount : -r.amount), 0);
 }
 
 async function resolveCategoryName(db: any, type: "income" | "expense", categoryId: number) {
