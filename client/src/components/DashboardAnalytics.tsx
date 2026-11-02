@@ -400,16 +400,20 @@ export function AlertsCard({
   coupons,
   stats,
   reconcileIssues = 0,
+  integrityIssues = [],
 }: {
   advances: any[];
   coupons: any[];
   stats: PersonStatFull[];
   reconcileIssues?: number;
+  /** 帳務自我檢查找到的問題（reports.integrity） */
+  integrityIssues?: string[];
 }) {
   const now = Date.now();
   const today = new Date().toISOString().slice(0, 10);
   const in30 = new Date(now + 30 * DAY).toISOString().slice(0, 10);
   const items: { level: "warn" | "info"; text: string }[] = [];
+  for (const text of integrityIssues) items.push({ level: "warn", text: `帳務檢查：${text}` });
   if (reconcileIssues > 0) items.push({ level: "warn", text: `官網有 ${reconcileIssues} 張訂單跟帳本對不上（到「官網對帳」處理）` });
 
   const staleAdvances = advances.filter((a) => a.status === "unsettled" && now - a.createdAt > 30 * DAY);

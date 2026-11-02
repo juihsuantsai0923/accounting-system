@@ -32,7 +32,7 @@ npm.cmd run cf:pages:deploy    # 建置並部署前端（改到 client/ 就要�
 npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X_xxx.sql   # 正式 D1 跑 migration
 ```
 
-- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0015（0015 加 revenue_settings.reserve_rate／admin_fee_rate，ALTER 只能跑一次；0014 還原 0013：蔡睿軒回到 super_admin（linked_teacher_id=2）、leviaxlab.official 停用，可重複執行；0013 新增管理員 leviaxlab.official@gmail.com、蔡睿軒帳號降為 teacher_self，可重複執行；0012 把王歆宜帳號 email 改成她的 Gmail，可重複執行；0011 把舊記錄項目名稱改成完整名稱，可重複執行；0010 加 `main_ledger.edited_at` 並把舊備註改成統一格式，ALTER 只能跑一次；0009 加 `main_ledger.breakdown`，ALTER 只能跑一次；0008 是整合金鑰表，可重複執行；0007 是官網訂單快照表，可重複執行；0005 是小班家教課程與老師對應，可重複執行；0006 加課程上課期間、把舊行事曆收入標成書籍，ALTER 只能跑一次）。
+- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0017（0017 把舊的書籍分潤列改成用書名當項目名稱，可重複執行；0016 加 revenue_settings.book_reserve_rate，ALTER 只能跑一次；0015 加 revenue_settings.reserve_rate／admin_fee_rate，ALTER 只能跑一次；0014 還原 0013：蔡睿軒回到 super_admin（linked_teacher_id=2）、leviaxlab.official 停用，可重複執行；0013 新增管理員 leviaxlab.official@gmail.com、蔡睿軒帳號降為 teacher_self，可重複執行；0012 把王歆宜帳號 email 改成她的 Gmail，可重複執行；0011 把舊記錄項目名稱改成完整名稱，可重複執行；0010 加 `main_ledger.edited_at` 並把舊備註改成統一格式，ALTER 只能跑一次；0009 加 `main_ledger.breakdown`，ALTER 只能跑一次；0008 是整合金鑰表，可重複執行；0007 是官網訂單快照表，可重複執行；0005 是小班家教課程與老師對應，可重複執行；0006 加課程上課期間、把舊行事曆收入標成書籍，ALTER 只能跑一次）。
 - **部署順序**：有新 migration 時，一定先跑 D1 migration，再 `wrangler deploy`，最後部署前端；Worker 先上線會因為欄位不存在而查詢失敗。
 - 改完要在回覆裡明確告訴使用者：要不要跑 `wrangler deploy`、要不要跑 migration。
 
@@ -43,7 +43,7 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 | 角色 | 說明 |
 |---|---|
 | `super_admin` | 全部權限（`adminProcedure`） |
-| `finance_staff` | 可新增／刪除帳務（`staffProcedure`） |
+| `finance_staff` | 唯讀（帳本、所有子記帳表、報表都能看；會改帳的 `staffProcedure` 只有 super_admin） |
 | `teacher_self` | 看自己的子記帳表＋**母記帳表（唯讀）**，看不到儀表板、應付總覽、每人統計 |
 | `salesperson_self` | **只能看自己的子記帳表** |
 
@@ -80,8 +80,8 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - 帳號設定頁可以改自己的姓名（`users.changeOwnName`）和密碼。
 - 收入來源有四種（`main_ledger.income_source`，舊資料為 null）：
   - `course` 線上課程：走分潤精靈（`computeCourseIncome`）。
-  - `tutoring` 小班家教：課程 `category = 'tutoring'`，實收金額 × `tutoring_reserve_rate`（2026-10-26 起為 10%，原本 5%；正式值存在 D1 的 revenue_settings）留公積金，其餘全給主理教師（`computeTutoringIncome`）。不套折數、優惠碼、推廣、團隊獎金。
-  - `book` 書籍（含筆記本、組合包，`books` 表）：選書＋數量＋優惠碼（`coupons` 表，折扣比例）算建議金額，實收可改；全數留公積金，不分給任何人（`computeBookIncome`）。
+  - `tutoring` 小班家教：課程 `category = 'tutoring'`，實收金額 × `reserve_rate`（10%，正式值存在 D1 的 revenue_settings）留公積金，其餘全給主理教師（`computeTutoringIncome`）。不套折數、優惠碼、推廣、團隊獎金。
+  - `book` 書籍（含筆記本、組合包，`books` 表）：選書＋數量＋優惠碼（`coupons` 表，折扣比例）算建議金額，實收可改；分潤見下面「分潤規則」（`computeBookIncome`＋`splitBookIncome`）。
   - `other` 其他收入（`income_types`），可手動多方分配。
 - 三種精靈入帳都走 `mainLedger.ts` 的 `insertIncome()`，新增收入類型時沿用它，不要再複製一份寫入邏輯。
 - **公積金**＝母記帳表目前餘額 − 所有人子記帳表餘額總和（含代墊、負餘額會加回），在儀表板顯示；母記帳表每筆收入另顯示「留給公積金」＝金額 − 已分配總額。不另外存欄位，舊帳也能直接算。
@@ -89,7 +89,7 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - 支出不支援多方分配。**薪水撥款例外**：前端會把同一筆金額當成 distribution 一起送（type expense），寫進該人員子記帳表，公司欠款跟著減少、公積金不變（2026-10-27 修正，之前薪水不會扣子帳）。
 - 母記帳表「公積金增減」＝收入：金額 − 已分配；支出：−（金額 − 已分配）。所以公帳支出是負數、薪水撥款是 0。
 - **Google 登入**（2026-10-29）：Google Cloud 專案 `leviax-finance`（juihsuantsai0923@gmail.com 的帳號），OAuth 用戶端「Leviax Finance Web」，ID 寫在 `wrangler.toml` [vars] `GOOGLE_CLIENT_ID` 與 `.env.production` `VITE_GOOGLE_CLIENT_ID`（公開值）。同意畫面是「測試」模式，只有測試使用者（四位老師的 Gmail）能登入；新增人員要同時在系統開帳號（email＝Gmail）並在 Google Cloud「Audience → Test users」加入。登入用跳轉流程（`client/src/lib/googleRedirect.ts`，response_type=id_token＋nonce，回到 `/login`；重新導向網址已登記 main／根網域／localhost:5173 的 `/login`），後端 `auth.googleLogin` 用 Google tokeninfo 驗證 aud/iss/email_verified 再用 email（不分大小寫）找帳號。登入頁照官網登入頁的樣式；這台電腦登入過的 Gmail 存在 localStorage `login.googleAccounts`。密碼登入收在「改用密碼登入」當備用。
-- **分潤規則（2026-10-29 簡化）**：只剩兩個參數（`revenue_settings.reserve_rate` 公積金、`admin_fee_rate` 行政費，都 10%），算法在 `server/revenueCalc.ts`。線上課程、書籍：公積金＋行政費（團隊名單 revenue_team_members 三人平分，名單固定不在畫面改）＋其餘給主理老師；書籍公積金固定 25%（`BOOK_RESERVE_RATE`，2026-11-02 使用者要求，不跟分潤參數走），依科目（`SUBJECT_TEACHERS`：物理蔡睿軒、化學王歆宜、生物潘彥宇、地科陳宥勳、數學蔡睿軒）分，行事曆（kind=notebook）與運費全留公積金；小班家教：公積金後全給主理老師。金額一律用實收（不再有折數、優惠碼折抵、推廣抽成、成本參數）。舊參數欄位留在表裡不用。
+- **分潤規則（2026-10-29 簡化）**：三個參數（`revenue_settings.reserve_rate` 公積金 10%、`admin_fee_rate` 行政費 10%、`book_reserve_rate` 書籍公積金 25%，管理面板「分潤參數」可改），算法在 `server/revenueCalc.ts`。線上課程、書籍：公積金＋行政費（團隊名單 revenue_team_members 三人平分，名單固定不在畫面改）＋其餘給主理老師；書籍公積金用 `book_reserve_rate`（2026-11-02 使用者要求 25%，不跟 reserve_rate 走；改了之後管理面板會先列出舊帳會改哪些、確認才用 `server/bookShares.ts` 的 `recalcBookShares` 重算老師那一份），老師子記帳表項目名稱寫書名（例如「物理 四本全套（書籍分潤）」），依科目（`SUBJECT_TEACHERS`：物理蔡睿軒、化學王歆宜、生物潘彥宇、地科陳宥勳、數學蔡睿軒）分，行事曆（kind=notebook）與運費全留公積金；小班家教：公積金後全給主理老師。金額一律用實收（不再有折數、優惠碼折抵、推廣抽成、成本參數）。舊參數欄位留在表裡不用。
 - **官網商品同步**：課程、書籍、優惠碼不再在管理面板維護，由同步書籤（`client/public/web-orders-sync.js`）一起讀官網後台「課程管理」「書籍管理（每個商品的單品與組合包）」「定價與優惠 › 優惠碼」送到 `/api/web-orders/sync` 的 `catalog`，`upsertCatalog` 以名稱／代碼對應更新；課程老師照科目自動對；官網沒有的書、優惠碼標停用。書名規則：單品＝官網單品名、組合包＝「科目 組合包名」、行事曆＝「商品名（單品名）」。
 - **權限**：會改帳的操作（`staffProcedure`、前端 `canManage`）只有 super_admin；財務人員 finance_staff 唯讀（帳本、所有子記帳表、報表都能看）；推銷者本人只看自己的儀表板與帳本。新增帳號不用密碼（Google 登入），但要記得加進 Google Cloud 測試使用者。
 - **帳號與身分切換**（2026-10-29）：系統管理員是蔡睿軒本人 juihsuantsai0923@gmail.com（super_admin，linked_teacher_id=2）；leviaxlab.official 已停用並移出 Google 測試使用者。管理員兼老師可在右上角「身分」切換管理員／老師：前端帶 `X-Act-As: teacher`，後端 `server/actAs.ts` 把該請求的角色降成 teacher_self，所有權限照老師規則跑（`ctx.user.realRole` 保留原角色）。
@@ -115,5 +115,7 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 ## 工作習慣
 
 - 使用者以繁體中文溝通，回覆也請用繁體中文，並簡潔說明改了什麼、要跑哪些部署指令。
-- git 目前只有一個初始 commit，之後的改動都還沒 commit。開始前建議先問使用者要不要把現況 commit 起來。
-- 資料夾裡的 `fix*_bundle.zip`、`round*_update.zip` 是舊對話傳檔用的，已全部解壓縮套用，可以刪除。
+- 每次改完都 commit（訊息用中文，結尾加 Co-Authored-By）。部署只在使用者說「部署」時做；改正式資料前先 `wrangler d1 export` 備份到 `記帳\D1備份_日期_說明.sql`。
+- **不要在資料庫直接刪改帳務資料**：一定要改時，改完重算餘額，並看儀表板「需要注意」的帳務檢查（`server/integrity.ts`、`reports.integrity`：帳本餘額、子記帳表餘額、分配表與子記帳表是否一致）沒有警告。
+- 測試：`npm.cmd test`（`tests/`，node:test＋記憶體 SQLite，涵蓋折扣分攤、書籍分潤、行事曆、運費、舊帳重算、帳務檢查）。改 `revenueCalc.ts`、`webOrderRecord.ts`、`bookShares.ts` 後一定要跑。
+- wrangler 是 4 版（2026-11-02 升級）；`workerd` 的 postinstall 沒核准，只影響本機 `wrangler dev`，部署和 d1 指令不受影響。

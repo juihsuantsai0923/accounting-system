@@ -361,16 +361,15 @@ function RevenueSettingsAdmin() {
   const teachersQuery = trpc.teachers.list.useQuery();
   const salespeopleQuery = trpc.salespeople.list.useQuery();
   const updateMutation = trpc.revenueSettings.update.useMutation({ onSuccess: () => utils.revenueSettings.get.invalidate() });
-  const [form, setForm] = useState({ reserveRatePercent: "10", adminFeeRatePercent: "10" });
+  const recalcMutation = trpc.revenueSettings.recalcBookShares.useMutation({ onSuccess: () => utils.invalidate() });
+  const [form, setForm] = useState({ reserveRatePercent: "10", adminFeeRatePercent: "10", bookReserveRatePercent: "25" });
   const [msg, setMsg] = useState<string | null>(null);
 
+  const pct = (r: number) => String(Math.round(r * 100 * 1000) / 1000);
   useEffect(() => {
     if (!settingsQuery.data) return;
     const s = settingsQuery.data.settings;
-    setForm({
-      reserveRatePercent: String(Math.round(s.reserveRate * 100 * 1000) / 1000),
-      adminFeeRatePercent: String(Math.round(s.adminFeeRate * 100 * 1000) / 1000),
-    });
+    setForm({ reserveRatePercent: pct(s.reserveRate), adminFeeRatePercent: pct(s.adminFeeRate), bookReserveRatePercent: pct(s.bookReserveRate) });
   }, [settingsQuery.data]);
 
   const members = settingsQuery.data?.members ?? [];
@@ -378,21 +377,47 @@ function RevenueSettingsAdmin() {
     ((m.recipientType === "teacher" ? teachersQuery.data : salespeopleQuery.data) ?? []).find((p: any) => p.id === m.recipientId)?.name ?? `#${m.recipientId}`;
   const reserve = parseFloat(form.reserveRatePercent || "0");
   const admin = parseFloat(form.adminFeeRatePercent || "0");
+  const bookReserve = parseFloat(form.bookReserveRatePercent || "0");
+  const rest = (r: number) => Math.round((100 - r - admin) * 1000) / 1000;
+
+  /** 書籍公積金比例改了：先列出舊帳會改哪些，確認後才重算 */
+  async function askRecalc() {
+    const preview = await recalcMutation.mutateAsync({ dryRun: true });
+    if (!preview.changes.length) return "已儲存；舊帳的書籍分潤已經是這個比例，不用重算。";
+    const ok = window.confirm(
+      `書籍公積金改成 ${bookReserve}%。要把舊帳的書籍分潤一起重算嗎？
+
+` +
+        `會改 ${preview.changes.length} 項，老師分潤合計 ${preview.diff > 0 ? "+" : ""}${preview.diff.toLocaleString()} 元（差額${preview.diff < 0 ? "回到" : "從"}公積金）。
+
+` +
+        `按「取消」只改以後新記的帳。`
+    );
+    if (!ok) return "已儲存；舊帳沒有重算，只有以後新記的書籍照新比例。";
+    const r = await recalcMutation.mutateAsync({ dryRun: false });
+    return `已儲存，並重算舊帳 ${r.changes.length} 項書籍分潤（老師分潤合計 ${r.diff > 0 ? "+" : ""}${r.diff.toLocaleString()} 元）。`;
+  }
 
   return (
     <Section title="分潤設定">
       <div className="text-sm text-slate-600 space-y-1">
-        <p>線上課程、書籍：公積金 {reserve}%＋行政費 {admin}%（{members.length} 人平分），其餘 {Math.round((100 - reserve - admin) * 1000) / 1000}% 給主理老師（書籍依科目）。</p>
-        <p>小班家教：公積金 {reserve}%，其餘給主理老師，不抽行政費。行事曆：全部留公積金。</p>
+        <p>線上課程：公積金 {reserve}%＋行政費 {admin}%（{members.length} 人平分），其餘 {rest(reserve)}% 給主理老師。</p>
+        <p>書籍：公積金 {bookReserve}%＋行政費 {admin}%，其餘 {rest(bookReserve)}% 依科目給該科老師。行事曆：全部留公積金。</p>
+        <p>小班家教：公積金 {reserve}%，其餘給主理老師，不抽行政費。</p>
       </div>
       <form
-        className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end"
+        className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end"
         onSubmit={async (e) => {
           e.preventDefault();
           setMsg(null);
+          const before = settingsQuery.data?.settings;
           try {
-            await updateMutation.mutateAsync({ reserveRatePercent: reserve, adminFeeRatePercent: admin });
-            setMsg("已儲存");
+            await updateMutation.mutateAsync({ reserveRatePercent: reserve, adminFeeRatePercent: admin, bookReserveRatePercent: bookReserve });
+            const bookChanged = before && Math.abs(before.bookReserveRate * 100 - bookReserve) > 1e-9;
+            const adminChanged = before && Math.abs(before.adminFeeRate * 100 - admin) > 1e-9;
+            if (bookChanged && !adminChanged) setMsg(await askRecalc());
+            else if (adminChanged) setMsg("已儲存；行政費比例只套用在以後新記的帳，舊帳不回頭重算。");
+            else setMsg("已儲存");
           } catch (err: any) {
             setMsg(err?.message ?? "儲存失敗");
           }
@@ -403,11 +428,15 @@ function RevenueSettingsAdmin() {
           <input className="input" inputMode="decimal" value={form.reserveRatePercent} onChange={(e) => setForm({ ...form, reserveRatePercent: e.target.value })} />
         </div>
         <div>
+          <label className="label">書籍公積金比例（%）</label>
+          <input className="input" inputMode="decimal" value={form.bookReserveRatePercent} onChange={(e) => setForm({ ...form, bookReserveRatePercent: e.target.value })} />
+        </div>
+        <div>
           <label className="label">行政費比例（%，團隊平分）</label>
           <input className="input" inputMode="decimal" value={form.adminFeeRatePercent} onChange={(e) => setForm({ ...form, adminFeeRatePercent: e.target.value })} />
         </div>
-        <button className="btn-primary" type="submit" disabled={updateMutation.isPending}>
-          {updateMutation.isPending ? "儲存中..." : "儲存"}
+        <button className="btn-primary" type="submit" disabled={updateMutation.isPending || recalcMutation.isPending}>
+          {updateMutation.isPending || recalcMutation.isPending ? "儲存中..." : "儲存"}
         </button>
       </form>
       {msg && <div className="text-sm text-slate-600">{msg}</div>}

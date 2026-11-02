@@ -152,7 +152,8 @@
     var out = [];
     for (var i = 0; i < L.length; i++) {
       if (!/^NT\$[\d,]+$/.test(L[i])) continue;
-      var name = L[i - 1];
+      // 官網卡片的「課程設定（上課資訊・常見問題・首頁・學員）→」連結有時會黏在課名後面，去掉
+      var name = L[i - 1].replace(/\s*課程設定（[^）]*）\s*→?\s*$/, "");
       var j = i - 1;
       while (j > 0 && L[j] !== "線上課程" && L[j] !== "小班家教") j--;
       if (j <= 0) continue;

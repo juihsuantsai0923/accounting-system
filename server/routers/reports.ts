@@ -14,6 +14,7 @@ import {
 import { eq, and, asc, desc, isNull } from "drizzle-orm";
 import { ledgerDelta } from "../ledger";
 import { toCsv, formatDate } from "../csv";
+import { checkIntegrity } from "../integrity";
 
 const recipientTypeSchema = z.enum(["teacher", "salesperson"]);
 
@@ -254,6 +255,14 @@ export const reportsRouter = router({
     ]);
 
     return [...teacherOverview, ...salespersonOverview];
+  }),
+
+  /** 帳務自我檢查（儀表板「需要注意」用）：餘額、分配表、子記帳表有沒有對不上 */
+  integrity: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role === "teacher_self" || ctx.user.role === "salesperson_self") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "無權查看" });
+    }
+    return checkIntegrity(ctx.db);
   }),
 
   /** 匯出母記帳表為 CSV（教師/推銷者本人帳號無權匯出，跟看母記帳表列表一樣的權限限制） */

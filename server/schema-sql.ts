@@ -247,4 +247,5 @@ export const revenueSettingsColumnMigrations: { column: string; statement: strin
   { column: "tutoring_reserve_rate", statement: `ALTER TABLE revenue_settings ADD COLUMN tutoring_reserve_rate REAL NOT NULL DEFAULT 0.1` },
   { column: "reserve_rate", statement: `ALTER TABLE revenue_settings ADD COLUMN reserve_rate REAL NOT NULL DEFAULT 0.1` },
   { column: "admin_fee_rate", statement: `ALTER TABLE revenue_settings ADD COLUMN admin_fee_rate REAL NOT NULL DEFAULT 0.1` },
+  { column: "book_reserve_rate", statement: `ALTER TABLE revenue_settings ADD COLUMN book_reserve_rate REAL NOT NULL DEFAULT 0.25` },
 ];

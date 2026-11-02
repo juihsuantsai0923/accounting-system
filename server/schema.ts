@@ -71,7 +71,7 @@ export const courses = sqliteTable("courses", {
   ...timestamps,
 });
 
-// ── Books / 書籍（含筆記本、組合包）：書籍收入全數留給公積金，不分給任何人 ─────────────────────────────
+// ── Books / 書籍（含筆記本、組合包）：書籍收入依科目分給老師（見 revenueCalc.ts splitBookIncome），行事曆全留公積金 ─────────────────────────────
 export const books = sqliteTable(
   "books",
   {
@@ -236,6 +236,7 @@ export const revenueSettings = sqliteTable("revenue_settings", {
   // 上面其他欄位是舊的分潤精靈參數，保留欄位但不再使用
   reserveRate: real("reserve_rate").notNull().default(0.1),
   adminFeeRate: real("admin_fee_rate").notNull().default(0.1),
+  bookReserveRate: real("book_reserve_rate").notNull().default(0.25), // 書籍公積金比例（2026-11-02 起）
   updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
 });
 

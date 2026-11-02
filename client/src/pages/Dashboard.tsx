@@ -42,6 +42,7 @@ export default function Dashboard() {
   const timelineQuery = trpc.reports.timeline.useQuery(undefined, { enabled: !isSelfRole });
   const booksQuery = trpc.books.list.useQuery(undefined, { enabled: !isSelfRole });
   const couponsQuery = trpc.coupons.list.useQuery(undefined, { enabled: !isSelfRole });
+  const integrityQuery = trpc.reports.integrity.useQuery(undefined, { enabled: !isSelfRole });
   const advancesQuery = trpc.advancePayments.list.useQuery({ status: "unsettled" }, { enabled: !isSelfRole });
   const reconcileQuery = trpc.webOrders.reconcile.useQuery(undefined, { enabled: !isSelfRole });
   const receivable = reconcileQuery.data?.receivable;
@@ -134,7 +135,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
-          <AlertsCard advances={advancesQuery.data ?? []} coupons={couponsQuery.data ?? []} stats={stats} reconcileIssues={reconcileIssues} />
+          <AlertsCard advances={advancesQuery.data ?? []} coupons={couponsQuery.data ?? []} stats={stats} reconcileIssues={reconcileIssues} integrityIssues={integrityQuery.data ?? []} />
         </div>
         <Link to="/reconcile" className="card block hover:shadow-card-hover transition-shadow">
           <div className="text-sm text-slate-500">應收帳款（官網待付款）</div>

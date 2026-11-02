@@ -7,7 +7,7 @@ import { writeAudit } from "../ledger";
 
 const kindSchema = z.enum(["book", "workbook", "bundle", "notebook"]);
 
-/** 書籍（含筆記本、組合包）：記帳時用來帶出品名與定價，書籍收入全數留給公積金 */
+/** 書籍（含筆記本、組合包）：記帳時用來帶出品名與定價，書籍收入依科目分潤（行事曆全留公積金） */
 export const booksRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.select().from(books).orderBy(asc(books.sortOrder), asc(books.id));

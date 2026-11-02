@@ -68,7 +68,10 @@ export async function upsertCatalog(db: any, cat: z.infer<typeof catalogPayload>
     return teacherRows.find((t) => t.name === s?.teacherName)?.id ?? null;
   };
   const existingCourses: any[] = await db.select().from(courses);
-  for (const [name, category, subject, price] of cat.courses) {
+  for (const [rawName, category, subject, price] of cat.courses) {
+    // 舊版書籤會把卡片上的「課程設定（上課資訊・常見問題・首頁・學員）→」連結文字黏進課名（2026-10-30 因此多建了 10 門假課程）
+    const name = rawName.replace(/\s*課程設定（[^）]*）\s*→?\s*$/, "").trim();
+    if (!name) continue;
     const teacherId = teacherFor(subject);
     const found = existingCourses.find((c) => c.name === name);
     if (found) await db.update(courses).set({ category, originalPrice: price, teacherId: teacherId ?? found.teacherId, updatedAt: now }).where(eq(courses.id, found.id));
