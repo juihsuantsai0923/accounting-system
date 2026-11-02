@@ -255,7 +255,7 @@ export function PersonLedgerPage({ kind }: { kind: Kind }) {
     .filter((r) => !filterMonth || monthOf(r.createdAt) === filterMonth)
     .filter((r) => {
       const t = filterText.trim().toLowerCase();
-      return !t || `${r.itemName} ${r.categoryName ?? ""}`.toLowerCase().includes(t);
+      return !t || `${r.buyer ?? ""} ${r.itemName} ${r.categoryName ?? ""}`.toLowerCase().includes(t);
     });
   if (newestFirst) visible.reverse();
   const sum = (type: string) => visible.filter((r) => r.type === type).reduce((s, r) => s + r.personalAmount, 0);
@@ -361,6 +361,7 @@ export function PersonLedgerPage({ kind }: { kind: Kind }) {
             <thead>
               <tr>
                 <th>日期</th>
+                <th>買家</th>
                 <th>項目</th>
                 <th>類別</th>
                 <th>來源</th>
@@ -375,6 +376,7 @@ export function PersonLedgerPage({ kind }: { kind: Kind }) {
               {visible.map((entry) => (
                 <tr key={entry.id}>
                   <td>{new Date(entry.createdAt).toLocaleDateString()}</td>
+                  <td>{entry.buyer ?? <span className="text-slate-300">-</span>}</td>
                   <td>
                     <ItemCell itemName={entry.itemName} />
                   </td>
@@ -391,7 +393,7 @@ export function PersonLedgerPage({ kind }: { kind: Kind }) {
               ))}
               {visible.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center text-slate-400 py-6">
+                  <td colSpan={10} className="text-center text-slate-400 py-6">
                     {isFiltering ? "沒有符合篩選條件的記錄" : "尚無記錄"}
                   </td>
                 </tr>

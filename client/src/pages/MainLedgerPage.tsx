@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import ItemCell from "../components/ItemCell";
+import { parseNote } from "../../../server/noteFormat";
 import { Link, Navigate } from "react-router-dom";
 import { trpc } from "../lib/trpc";
 import { useAuth, canManage } from "../lib/auth";
@@ -1245,6 +1246,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
           <thead>
             <tr>
               <th>日期</th>
+              <th>買家</th>
               <th>項目</th>
               <th>類別</th>
               <th>類型</th>
@@ -1261,6 +1263,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
               return (
                 <tr key={entry.id}>
                   <td className="whitespace-nowrap">{new Date(entry.createdAt).toLocaleDateString()}</td>
+                  <td className="whitespace-nowrap">{parseNote(entry.note).buyer ?? <span className="text-slate-300">-</span>}</td>
                   <td>
                     <ItemCell itemName={entry.itemName} note={entry.note} />
                   </td>
@@ -1295,7 +1298,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
             })}
             {visibleEntries.length === 0 && (
               <tr>
-                <td colSpan={9} className="text-center text-slate-400 py-6">
+                <td colSpan={10} className="text-center text-slate-400 py-6">
                   {isFiltering ? "沒有符合篩選條件的記錄" : "尚無記錄"}
                 </td>
               </tr>
