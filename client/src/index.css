@@ -166,60 +166,55 @@ table.data-table tbody tr:hover {
   }
 }
 
-/* 背景：三團很淡的藍、金色光暈慢慢飄 */
+/* 背景：淺藍底＋幾層非寫實的波紋，各自用不同速度慢慢往旁邊流（不用黃色） */
 .app-bg {
   position: fixed;
   inset: 0;
   z-index: -1;
   overflow: hidden;
   pointer-events: none;
-  background: linear-gradient(180deg, #ffffff 0%, #f7f9fe 100%);
+  background: linear-gradient(180deg, #f7faff 0%, #eef4ff 100%);
 }
-.app-bg span {
+.app-bg .wave {
   position: absolute;
-  border-radius: 9999px;
-  filter: blur(70px);
-  opacity: 0.55;
+  left: 0;
+  width: 200%;
+  height: 100%;
   will-change: transform;
 }
-.app-bg span:nth-child(1) {
-  width: 42vw;
-  height: 42vw;
-  top: -12vw;
-  left: -10vw;
-  background: #e4ecfb;
-  animation: bg-drift-a 38s ease-in-out infinite alternate;
+.app-bg .wave svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
-.app-bg span:nth-child(2) {
-  width: 34vw;
-  height: 34vw;
-  top: 30vh;
-  right: -12vw;
-  background: #fff1c7;
-  opacity: 0.45;
-  animation: bg-drift-b 46s ease-in-out infinite alternate;
+/* 下方三層波浪：越後面越淡、越慢 */
+.app-bg .wave-1 {
+  bottom: 0;
+  height: 34vh;
+  animation: wave-flow 48s linear infinite;
 }
-.app-bg span:nth-child(3) {
-  width: 30vw;
-  height: 30vw;
-  bottom: -14vw;
-  left: 25vw;
-  background: #eef4ff;
-  animation: bg-drift-c 52s ease-in-out infinite alternate;
+.app-bg .wave-2 {
+  bottom: 0;
+  height: 26vh;
+  animation: wave-flow 36s linear infinite reverse;
 }
-@keyframes bg-drift-a {
-  to {
-    transform: translate(8vw, 6vh) scale(1.08);
+.app-bg .wave-3 {
+  bottom: 0;
+  height: 18vh;
+  animation: wave-flow 28s linear infinite;
+}
+/* 上方一條細細的線狀波紋 */
+.app-bg .wave-top {
+  top: 8vh;
+  height: 22vh;
+  animation: wave-flow 60s linear infinite reverse;
+}
+@keyframes wave-flow {
+  from {
+    transform: translateX(0);
   }
-}
-@keyframes bg-drift-b {
   to {
-    transform: translate(-7vw, -8vh) scale(1.12);
-  }
-}
-@keyframes bg-drift-c {
-  to {
-    transform: translate(6vw, -5vh) scale(0.94);
+    transform: translateX(-50%);
   }
 }
 
@@ -227,7 +222,7 @@ table.data-table tbody tr:hover {
   .brand-title,
   .brand-logo,
   .brand-underline::after,
-  .app-bg span {
+  .app-bg .wave {
     animation: none !important;
   }
   .brand-title {

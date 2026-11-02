@@ -98,6 +98,46 @@ function RoleSwitch({ compact }: { compact?: boolean }) {
   );
 }
 
+/**
+ * 背景波紋：每層是兩段一模一樣的波形接在一起（寬 200%），往左移一半剛好接回原位，就能無縫一直流。
+ * 顏色都是品牌淺藍，不用黃色。
+ */
+function wavePath(amp: number, base: number, phase = 0) {
+  // 0–2400 寬、0–100 高的 viewBox，兩個週期各 1200
+  let d = `M0 ${base}`;
+  for (let x = 0; x <= 2400; x += 40) d += ` L${x} ${(base + amp * Math.sin(((x + phase) / 1200) * 2 * Math.PI)).toFixed(1)}`;
+  return d;
+}
+function BackgroundWaves() {
+  const fill = (amp: number, base: number, phase: number) => `${wavePath(amp, base, phase)} L2400 100 L0 100 Z`;
+  return (
+    <div className="app-bg" aria-hidden>
+      <div className="wave wave-top">
+        <svg viewBox="0 0 2400 100" preserveAspectRatio="none">
+          <path d={wavePath(18, 50, 0)} fill="none" stroke="#c6d6f3" strokeWidth="1.2" vectorEffect="non-scaling-stroke" opacity="0.7" />
+          <path d={wavePath(14, 58, 300)} fill="none" stroke="#c6d6f3" strokeWidth="1" vectorEffect="non-scaling-stroke" opacity="0.45" />
+        </svg>
+      </div>
+      <div className="wave wave-1">
+        <svg viewBox="0 0 2400 100" preserveAspectRatio="none">
+          <path d={fill(14, 40, 0)} fill="#e4ecfb" opacity="0.7" />
+        </svg>
+      </div>
+      <div className="wave wave-2">
+        <svg viewBox="0 0 2400 100" preserveAspectRatio="none">
+          <path d={fill(12, 45, 400)} fill="#c6d6f3" opacity="0.35" />
+        </svg>
+      </div>
+      <div className="wave wave-3">
+        <svg viewBox="0 0 2400 100" preserveAspectRatio="none">
+          <path d={fill(10, 50, 800)} fill="#8dafee" opacity="0.18" />
+          <path d={wavePath(10, 50, 800)} fill="none" stroke="#8dafee" strokeWidth="1" vectorEffect="non-scaling-stroke" opacity="0.35" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -165,11 +205,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen">
-      <div className="app-bg" aria-hidden>
-        <span />
-        <span />
-        <span />
-      </div>
+      <BackgroundWaves />
       <header className="no-print bg-white/90 backdrop-blur border-b-2 border-gold-400/50 shadow-header sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
