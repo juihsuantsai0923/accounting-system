@@ -114,6 +114,7 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 
 - **公司等級**（2026-11-03，`client/src/lib/levels.ts`、`LevelCard.tsx`）：累計營業額（不含創始基金）換算等級，Lv1＝1 萬；Lv1–10 每級 +1 萬、11–20 +2 萬、21–30 +5 萬、31–40 +10 萬、41–50 +20 萬、51 起 +50 萬；每 10 級一個稱號（起步、成長、突破、卓越、傳奇、殿堂）。管理員儀表板與老師儀表板最上方都有。
 - **分析頁**（`/analytics`，`AnalyticsPage.tsx`、`client/src/lib/analytics.ts`，老師／推銷者看不到）：損益表（每月／季／年，較上期、較去年同期；分潤算成本、薪水撥款不重複算、創始基金另列）＋客戶分析（以備註的買家姓名為客戶：客戶數、回購率、客單價、每月新客與回購、購買組合、各科人數、客戶排行）。
+- **稅務專區**（`/tax`，`TaxPage.tsx`、`client/src/lib/tax.ts`，老師／推銷者看不到）：每月營業額拆勞務／貨物並標示是否達起徵點（勞務 5 萬、貨物 10 萬，114 年起）與 20 萬小規模上限、可能的稅務問題（稅籍登記、小規模、補習班立案、預收學費、老師扣繳與補充保費、書籍、創始基金、收款帳戶）、營業稅四種情境、所得稅（公司／獨資合夥／小規模）、老師撥款的扣繳與補充保費、報稅行事曆、參考資料。數字用 115 年度規定（`TAX` 常數），每年要更新。
 - **定期收支**（管理面板「定期收支」，`server/recurring.ts`、`routers/recurring.ts`、表 `recurring_entries`）：使用者自己設定每月固定的收入或支出與幾號（1–28），不分給任何人；薪水類別不能設。
 - **每日排程**（`wrangler.toml [triggers]` 每天 UTC 01:00＝台灣 9 點，`server/dailyJob.ts`）：記到期的定期收支、帳務檢查、官網對帳（對不上、待付款超過 3 天），有事才發 LINE。
 - **LINE 通知**（`server/lineNotify.ts`、管理面板「LINE 通知」）：官網推送有新訂單或狀態改變時馬上通知、每日排程的提醒。金鑰是 Worker secret `LINE_CHANNEL_ACCESS_TOKEN`、`LINE_NOTIFY_TO`（LINE user ID，可逗號分多人），使用者自己用 `wrangler secret put` 設，不要幫他輸入；沒設就不發。

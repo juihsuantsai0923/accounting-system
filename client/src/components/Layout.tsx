@@ -188,6 +188,9 @@ export default function Layout() {
             <TabLink to="/analytics" onClick={closeMenu}>
               分析
             </TabLink>
+            <TabLink to="/tax" onClick={closeMenu}>
+              稅務
+            </TabLink>
           </>
         )
       )}
