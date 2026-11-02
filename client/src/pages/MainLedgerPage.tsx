@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import ItemCell from "../components/ItemCell";
 import { Link, Navigate } from "react-router-dom";
 import { trpc } from "../lib/trpc";
 import { useAuth, canManage } from "../lib/auth";
 import { downloadTextFile } from "../lib/download";
 import SearchableSelect from "../components/SearchableSelect";
 import CheckList from "../components/CheckList";
-import NoteFields, { NoteView } from "../components/NoteFields";
+import NoteFields from "../components/NoteFields";
 import EditEntryDialog from "../components/EditEntryDialog";
 import { formatNote, type NoteParts } from "../../../server/noteFormat";
 
@@ -1261,8 +1262,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                 <tr key={entry.id}>
                   <td className="whitespace-nowrap">{new Date(entry.createdAt).toLocaleDateString()}</td>
                   <td>
-                    {entry.itemName}
-                    <NoteView note={entry.note} />
+                    <ItemCell itemName={entry.itemName} note={entry.note} />
                   </td>
                   <td>
                     {entry.categoryName}

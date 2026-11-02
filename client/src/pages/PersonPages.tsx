@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NavLink, useParams } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { trpc } from "../lib/trpc";
+import ItemCell from "../components/ItemCell";
 import { downloadTextFile } from "../lib/download";
 import { BRAND, GRID, INK_MUTED, MonthlyRevenueChart, fmt, fmtShort, niceTicks, tooltipStyle } from "../components/DashboardCharts";
 import { ReserveTrendChart } from "../components/DashboardAnalytics";
@@ -374,7 +375,9 @@ export function PersonLedgerPage({ kind }: { kind: Kind }) {
               {visible.map((entry) => (
                 <tr key={entry.id}>
                   <td>{new Date(entry.createdAt).toLocaleDateString()}</td>
-                  <td>{entry.itemName}</td>
+                  <td>
+                    <ItemCell itemName={entry.itemName} />
+                  </td>
                   <td>{entry.categoryName ?? "-"}</td>
                   <td className={entry.sourceType === "advance" ? "text-amber-600" : entry.sourceType === "advance_settlement" ? "text-slate-500" : ""}>
                     {SOURCE_LABELS[entry.sourceType] ?? entry.sourceType}
