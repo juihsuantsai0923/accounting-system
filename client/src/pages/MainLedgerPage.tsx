@@ -812,7 +812,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
               ) : incomeMode === "book" ? (
                 <>
                   <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
-                    書籍（含行事曆、組合包）：選書和數量會自動帶出定價，選了優惠碼會自動折扣，實收金額可以改。各科的書照「公積金＋行政費＋該科老師」分（物理蔡睿軒、化學王歆宜、生物潘彥宇、地科陳宥勳），行事曆全部留公積金。書目和優惠碼跟官網同步（官網對帳的同步書籤）。
+                    書籍（含行事曆、組合包）：選書和數量會自動帶出定價，選了優惠碼會自動折扣，實收金額可以改。各科的書照「公積金 25%＋行政費＋該科老師」分（物理蔡睿軒、化學王歆宜、生物潘彥宇、地科陳宥勳），行事曆全部留公積金。書目和優惠碼跟官網同步（官網對帳的同步書籤）。
                   </div>
                   <div className="space-y-2">
                     <label className="label">書目（可以複選，勾好再改數量）</label>

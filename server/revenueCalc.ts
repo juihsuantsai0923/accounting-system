@@ -6,7 +6,7 @@ import { books, coupons, courses, revenueSettings, revenueTeamMembers, teachers 
  *   公積金比例 reserveRate（預設 10%）：線上課程、書籍、小班家教都先留這個比例給公司
  *   行政費比例 adminFeeRate（預設 10%）：線上課程、書籍另外抽這個比例，固定由團隊名單上的三位平分
  *   剩下的全部給主理老師（線上課程＝課程的老師；書籍＝依科目對應的老師）
- * 例外：行事曆（筆記本）全部留公積金；小班家教不抽行政費。
+ * 例外：書籍公積金固定 25%（BOOK_RESERVE_RATE，2026-11-02 起）；行事曆（筆記本）全部留公積金；小班家教不抽行政費。
  * 金額一律用實際收到的錢（不再用原價×折數−優惠碼推算）。
  */
 export interface RevenueSettingsRow {
@@ -16,6 +16,9 @@ export interface RevenueSettingsRow {
 }
 
 export const DEFAULT_REVENUE_SETTINGS = { reserveRate: 0.1, adminFeeRate: 0.1 };
+
+/** 書籍的公積金比例（不跟著分潤參數的公積金比例走；行事曆另外全數留公積金） */
+export const BOOK_RESERVE_RATE = 0.25;
 
 /** 讀取分潤設定，資料庫裡還沒有任何設定列時自動建立一列預設值 */
 export async function getRevenueSettings(db: any): Promise<RevenueSettingsRow> {
@@ -67,10 +70,10 @@ export async function teacherIdForSubject(db: any, name: string): Promise<number
  *   公積金＋行政費＝金額 ×（公積金比例＋行政費比例），四捨五入；主理老師拿剩下的
  *   行政費＝金額 × 行政費比例，團隊名單每人平分（無條件捨去），零頭跟公積金一起留在公司
  */
-export async function splitWithAdminFee(db: any, amount: number, ownerTeacherId: number, ownerSuffix: string) {
+export async function splitWithAdminFee(db: any, amount: number, ownerTeacherId: number, ownerSuffix: string, reserveRate?: number) {
   const settings = await getRevenueSettings(db);
   const members: { recipientType: RecipientType; recipientId: number }[] = await db.select().from(revenueTeamMembers);
-  const companyPart = Math.round(amount * (settings.reserveRate + settings.adminFeeRate));
+  const companyPart = Math.round(amount * ((reserveRate ?? settings.reserveRate) + settings.adminFeeRate));
   const ownerShare = amount - companyPart;
   const adminFee = Math.round(amount * settings.adminFeeRate);
   const perPerson = members.length ? Math.floor(adminFee / members.length) : 0;
@@ -149,7 +152,7 @@ export async function computeBookIncome(db: any, input: { lines: BookLineInput[]
 /**
  * 書籍收入拆給誰：實收金額依定價比例攤到每本書，再依科目分組。
  *   行事曆（筆記本）→ 全部留公積金
- *   有科目的書 → 公積金＋行政費＋該科老師（同線上課程）
+ *   有科目的書 → 公積金 25%＋行政費＋該科老師
  *   認不出科目的書 → 全部留公積金
  * 回傳每一組的金額與分潤，給 combineIncome 合成一筆。
  */
@@ -172,7 +175,7 @@ export async function splitBookIncome(db: any, detail: { bookId: number; name: s
   const parts = [];
   for (const g of groups.values()) {
     if (g.amount <= 0) continue;
-    const distributions = g.teacherId ? (await splitWithAdminFee(db, g.amount, g.teacherId, "書籍分潤")).distributions : [];
+    const distributions = g.teacherId ? (await splitWithAdminFee(db, g.amount, g.teacherId, "書籍分潤", BOOK_RESERVE_RATE)).distributions : [];
     parts.push({ name: g.items.join("、"), categoryId: g.categoryId, amount: g.amount, distributions, personalLabel: g.label });
   }
   return parts;
