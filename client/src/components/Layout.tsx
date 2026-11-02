@@ -165,7 +165,12 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen">
-      <header className="no-print bg-white border-b-2 border-gold-400/50 shadow-header sticky top-0 z-10">
+      <div className="app-bg" aria-hidden>
+        <span />
+        <span />
+        <span />
+      </div>
+      <header className="no-print bg-white/90 backdrop-blur border-b-2 border-gold-400/50 shadow-header sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <button
@@ -179,11 +184,11 @@ export default function Layout() {
             {/* 商標：與登入頁面統一改為白底圓角方框，裡面放圖示並留白，
                 深藍圖示原色在深藍色頁首上才不會融為一體看不見 */}
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-white ring-1 ring-brand-700/15 flex items-center justify-center shrink-0">
+              <div className="brand-logo h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-white ring-1 ring-brand-700/15 flex items-center justify-center shrink-0">
                 <LeviaxLogo className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
               {/* 字體與顏色改回和下方功能列一致（沿用頁面預設字體、白色文字），但字級加大作為標題 */}
-              <div className="font-serif text-brand-700 text-lg sm:text-xl tracking-wide truncate">澈點科學財務系統</div>
+              <div className="brand-title font-serif text-lg sm:text-xl tracking-wide truncate">澈點科學財務系統</div>
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-brand-700/70 shrink-0">
@@ -219,6 +224,7 @@ export default function Layout() {
             {navLinks(true)}
           </div>
         )}
+        <div className="brand-underline" aria-hidden />
       </header>
       <main className="max-w-7xl mx-auto px-3 sm:px-4 py-6">
         <Outlet />

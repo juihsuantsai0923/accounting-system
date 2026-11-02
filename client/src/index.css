@@ -99,3 +99,145 @@ table.data-table tbody tr:hover {
     margin: 14mm;
   }
 }
+
+/* ── 頁首與背景的小動畫（慢、淡，求沉穩；系統設定「減少動態效果」時全部停掉） ── */
+
+/* 標題：深藍字，每隔幾秒有一道金光慢慢掃過 */
+.brand-title {
+  background: linear-gradient(100deg, #1e3a6e 0%, #1e3a6e 40%, #c8a040 50%, #1e3a6e 60%, #1e3a6e 100%);
+  background-size: 250% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: brand-shine 7s ease-in-out 1s infinite;
+}
+@keyframes brand-shine {
+  0% {
+    background-position: 100% 0;
+  }
+  35%,
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+/* Logo 方框：淡淡的金色光暈一呼一吸 */
+.brand-logo {
+  animation: brand-breathe 5s ease-in-out infinite;
+}
+@keyframes brand-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 201, 106, 0);
+  }
+  50% {
+    box-shadow: 0 0 14px 2px rgba(232, 201, 106, 0.35);
+  }
+}
+
+/* 頁首金色底線：一道細光從左滑到右 */
+.brand-underline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.brand-underline::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -30%;
+  width: 30%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, #e8c96a, transparent);
+  animation: brand-sweep 9s ease-in-out infinite;
+}
+@keyframes brand-sweep {
+  0% {
+    left: -30%;
+  }
+  45%,
+  100% {
+    left: 100%;
+  }
+}
+
+/* 背景：三團很淡的藍、金色光暈慢慢飄 */
+.app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background: linear-gradient(180deg, #ffffff 0%, #f7f9fe 100%);
+}
+.app-bg span {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  opacity: 0.55;
+  will-change: transform;
+}
+.app-bg span:nth-child(1) {
+  width: 42vw;
+  height: 42vw;
+  top: -12vw;
+  left: -10vw;
+  background: #e4ecfb;
+  animation: bg-drift-a 38s ease-in-out infinite alternate;
+}
+.app-bg span:nth-child(2) {
+  width: 34vw;
+  height: 34vw;
+  top: 30vh;
+  right: -12vw;
+  background: #fff1c7;
+  opacity: 0.45;
+  animation: bg-drift-b 46s ease-in-out infinite alternate;
+}
+.app-bg span:nth-child(3) {
+  width: 30vw;
+  height: 30vw;
+  bottom: -14vw;
+  left: 25vw;
+  background: #eef4ff;
+  animation: bg-drift-c 52s ease-in-out infinite alternate;
+}
+@keyframes bg-drift-a {
+  to {
+    transform: translate(8vw, 6vh) scale(1.08);
+  }
+}
+@keyframes bg-drift-b {
+  to {
+    transform: translate(-7vw, -8vh) scale(1.12);
+  }
+}
+@keyframes bg-drift-c {
+  to {
+    transform: translate(6vw, -5vh) scale(0.94);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-title,
+  .brand-logo,
+  .brand-underline::after,
+  .app-bg span {
+    animation: none !important;
+  }
+  .brand-title {
+    color: #1e3a6e;
+    background: none;
+  }
+}
+
+@media print {
+  .app-bg {
+    display: none;
+  }
+}
