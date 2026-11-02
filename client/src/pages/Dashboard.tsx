@@ -103,8 +103,6 @@ export default function Dashboard() {
         <MonthlyReportButton entries={entries} timeline={timeline} stats={stats} courseNames={courseNames} />
       </div>
 
-      <LevelCard entries={entries} />
-
       <div className="card border-l-4 border-gold-500">
         <div className="text-sm text-slate-500">公積金（公司自己的錢）</div>
         <div className={`text-3xl font-semibold mt-1 ${reserveFund < 0 ? "text-red-600" : "text-brand-700"}`}>{fmt(reserveFund)}</div>
@@ -133,6 +131,8 @@ export default function Dashboard() {
           <div className="text-2xl font-semibold mt-1 text-amber-600">{fmt(totalUnsettledAdvance)}</div>
         </div>
       </div>
+
+      <LevelCard entries={entries} />
 
       <KpiCompare entries={entries} timeline={timeline} />
 
