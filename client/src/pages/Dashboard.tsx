@@ -4,6 +4,7 @@ import { useAuth } from "../lib/auth";
 import { downloadTextFile } from "../lib/download";
 import { useState } from "react";
 import { MonthlyRevenueChart, PersonOwedChart, PersonRevenueChart } from "../components/DashboardCharts";
+import LevelCard from "../components/LevelCard";
 import {
   AlertsCard,
   ExpenseCategoryChart,
@@ -101,6 +102,8 @@ export default function Dashboard() {
         <h1 className="text-2xl text-brand-700">儀表板總覽</h1>
         <MonthlyReportButton entries={entries} timeline={timeline} stats={stats} courseNames={courseNames} />
       </div>
+
+      <LevelCard entries={entries} />
 
       <div className="card border-l-4 border-gold-500">
         <div className="text-sm text-slate-500">公積金（公司自己的錢）</div>

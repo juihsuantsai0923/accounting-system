@@ -78,3 +78,24 @@ table.data-table tbody tr:hover {
 .table-wrap {
   @apply overflow-x-auto -mx-5 px-5 sm:-mx-6 sm:px-6;
 }
+
+/* 列印（月結對帳單「列印／存成 PDF」）：拿掉頁首、按鈕、卡片陰影 */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+  }
+  main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  .card {
+    box-shadow: none !important;
+  }
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+}

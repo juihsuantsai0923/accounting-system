@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { books, coupons, courses, integrationKeys, teachers, webOrders } from "./schema";
 import { SUBJECT_TEACHERS } from "./revenueCalc";
 
@@ -107,7 +107,17 @@ export async function upsertCatalog(db: any, cat: z.infer<typeof catalogPayload>
 /** 寫入／更新訂單快照：官網的欄位以最新為準，記帳這邊的手動標記（manual_status、manual_note）保留 */
 export async function upsertWebOrders(db: any, rows: z.infer<typeof orderRow>[], keyName: SyncKeyName = SYNC_KEY_NAME) {
   const now = Date.now();
+  // 記下哪些是新訂單、哪些狀態變了（給 LINE 通知用）
+  const nos = rows.map((r) => r[0]);
+  const before = new Map<string, any>();
+  for (let i = 0; i < nos.length; i += 90)
+    for (const o of await db.select().from(webOrders).where(inArray(webOrders.orderNo, nos.slice(i, i + 90)))) before.set(o.orderNo, o);
+  const created: { orderNo: string; buyer: string; total: number; statusLabel: string; items: string[] }[] = [];
+  const changed: { orderNo: string; buyer: string; from: string; to: string }[] = [];
   for (const [no, at, buyer, total, discount, status, tab, items] of rows) {
+    const old = before.get(no);
+    if (!old) created.push({ orderNo: no, buyer, total, statusLabel: status, items: items.map((it) => it[0]) });
+    else if (old.statusLabel !== status) changed.push({ orderNo: no, buyer, from: old.statusLabel, to: status });
     const orderedAt = new Date(`${at}+08:00`).getTime();
     const itemsJson = JSON.stringify(items.map(([name, price, pre, bun]) => ({ name, price, preorder: !!pre, bundle: !!bun })));
     await db
@@ -119,7 +129,7 @@ export async function upsertWebOrders(db: any, rows: z.infer<typeof orderRow>[],
       });
   }
   await db.update(integrationKeys).set({ lastUsedAt: now }).where(eq(integrationKeys.name, keyName));
-  return { count: rows.length, syncedAt: now };
+  return { count: rows.length, syncedAt: now, created, changed };
 }
 
 /** /api/web-orders/sync 的處理：回傳 [狀態碼, JSON] */
@@ -127,9 +137,9 @@ export async function handleSyncRequest(db: any, key: string | null, body: unkno
   if (!(await verifySyncKey(db, key))) return [401, { error: "同步金鑰不正確，請到記帳系統「官網對帳」重新產生書籤" }];
   const parsed = syncPayload.safeParse(body);
   if (!parsed.success) return [400, { error: "訂單資料格式不對，官網可能改版了", detail: parsed.error.issues.slice(0, 3) }];
-  const result = await upsertWebOrders(db, parsed.data.orders);
+  const { count, syncedAt } = await upsertWebOrders(db, parsed.data.orders);
   const catalog = parsed.data.catalog ? await upsertCatalog(db, parsed.data.catalog) : null;
-  return [200, { ...result, catalog }];
+  return [200, { count, syncedAt, catalog }];
 }
 
 
@@ -182,7 +192,15 @@ export function pushOrderToRow(o: z.infer<typeof pushOrder>): z.infer<typeof ord
 }
 
 /** /api/web-orders/push 的處理：回傳 [狀態碼, JSON] */
-export async function handlePushRequest(db: any, authorization: string | null, body: unknown): Promise<[number, unknown]> {
+export type OrderChanges = Pick<Awaited<ReturnType<typeof upsertWebOrders>>, "created" | "changed">;
+
+/** onChanges：有新訂單或狀態改變時呼叫（Worker 用來發 LINE 通知） */
+export async function handlePushRequest(
+  db: any,
+  authorization: string | null,
+  body: unknown,
+  onChanges?: (c: OrderChanges) => Promise<unknown>
+): Promise<[number, unknown]> {
   const key = authorization?.match(/^Bearer\s+(\S+)$/i)?.[1] ?? null;
   if (!(await verifySyncKey(db, key, PUSH_KEY_NAME))) return [401, { error: "自動同步金鑰不正確" }];
   const parsed = pushPayload.safeParse(body);
@@ -193,7 +211,14 @@ export async function handlePushRequest(db: any, authorization: string | null, b
   } catch (e: any) {
     return [400, { error: e.message }];
   }
-  const result = await upsertWebOrders(db, rows, PUSH_KEY_NAME);
+  const { count, syncedAt, created, changed } = await upsertWebOrders(db, rows, PUSH_KEY_NAME);
+  if (onChanges && (created.length || changed.length)) {
+    try {
+      await onChanges({ created, changed });
+    } catch (e) {
+      console.error("LINE 通知失敗", e); // 通知失敗不影響同步
+    }
+  }
   const c = parsed.data.catalog;
   const catalog = c
     ? await upsertCatalog(db, {
@@ -202,5 +227,5 @@ export async function handlePushRequest(db: any, authorization: string | null, b
         coupons: (c.coupons ?? []).map((x) => [x.code, x.discountRate, x.validUntil, x.active] as [string, number, string | null, boolean]),
       })
     : null;
-  return [200, { ok: true, ...result, catalog }];
+  return [200, { ok: true, count, syncedAt, catalog }];
 }

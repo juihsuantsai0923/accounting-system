@@ -13,6 +13,9 @@ export interface Env {
   ADMIN_PASSWORD?: string;
   /** Google 登入用的 OAuth 用戶端 ID（公開值，寫在 wrangler.toml 的 [vars]） */
   GOOGLE_CLIENT_ID?: string;
+  /** LINE 通知（Worker secret，見 server/lineNotify.ts） */
+  LINE_CHANNEL_ACCESS_TOKEN?: string;
+  LINE_NOTIFY_TO?: string;
 }
 
 /**
@@ -42,7 +45,7 @@ export function createD1Context(env: Env) {
         }
       }
     }
-    return { db, user: applyActAs(user, req.headers.get("x-act-as")), jwtSecret, googleClientId: env.GOOGLE_CLIENT_ID ?? "" };
+    return { db, user: applyActAs(user, req.headers.get("x-act-as")), jwtSecret, googleClientId: env.GOOGLE_CLIENT_ID ?? "", line: { token: env.LINE_CHANNEL_ACCESS_TOKEN, to: env.LINE_NOTIFY_TO } };
   };
 }
 

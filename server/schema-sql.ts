@@ -214,6 +214,20 @@ export const createTableStatements: string[] = [
     manual_note TEXT
   )`,
 
+  `CREATE TABLE IF NOT EXISTS recurring_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL,
+    item_name TEXT NOT NULL,
+    category_id INTEGER NOT NULL,
+    amount INTEGER NOT NULL,
+    day_of_month INTEGER NOT NULL,
+    note TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    last_run_month TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+
   `CREATE TABLE IF NOT EXISTS integration_keys (
     name TEXT PRIMARY KEY,
     key_hash TEXT NOT NULL,

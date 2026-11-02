@@ -4,6 +4,8 @@ import { createD1Context, type Env } from "./context.d1";
 import { ensureAdmin } from "./ensureAdmin";
 import { ensureSalaryExpenseTypes } from "./ensureSalaryExpenseTypes";
 import { handlePushRequest, handleSyncRequest } from "./webOrdersSync";
+import { orderMessage, sendLine } from "./lineNotify";
+import { dailyJob } from "./dailyJob";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
 
@@ -52,7 +54,10 @@ export default {
       } catch {
         return withCors(Response.json({ error: "資料不是 JSON" }, { status: 400 }));
       }
-      const [status, payload] = await handlePushRequest(drizzle(env.DB, { schema }), request.headers.get("authorization"), body);
+      const line = { token: env.LINE_CHANNEL_ACCESS_TOKEN, to: env.LINE_NOTIFY_TO };
+      const [status, payload] = await handlePushRequest(drizzle(env.DB, { schema }), request.headers.get("authorization"), body, (c) =>
+        sendLine(line, orderMessage(c.created, c.changed))
+      );
       return withCors(Response.json(payload, { status }));
     }
 
@@ -81,5 +86,12 @@ export default {
     }
 
     return withCors(new Response("Not Found", { status: 404 }));
+  },
+
+  /** 每天早上 9 點（台灣時間，wrangler.toml [triggers]）：記定期收支、帳務檢查、官網對帳，有事才發 LINE */
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(
+      dailyJob(drizzle(env.DB, { schema }), { token: env.LINE_CHANNEL_ACCESS_TOKEN, to: env.LINE_NOTIFY_TO }).catch((e) => console.error("每日排程失敗", e))
+    );
   },
 };

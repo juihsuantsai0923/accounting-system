@@ -271,4 +271,18 @@ export const integrationKeys = sqliteTable("integration_keys", {
   lastUsedAt: integer("last_used_at"),
 });
 
+// ── RecurringEntries / 每月定期收支（自己設定，每天早上 9 點的排程到了那天就自動記一筆） ─────────────────────────────
+export const recurringEntries = sqliteTable("recurring_entries", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  type: text("type").notNull(), // income | expense
+  itemName: text("item_name").notNull(),
+  categoryId: integer("category_id").notNull(), // income → income_types；expense → expense_types（不能是薪水）
+  amount: integer("amount").notNull(),
+  dayOfMonth: integer("day_of_month").notNull(), // 每月幾號（1–28）
+  note: text("note"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  lastRunMonth: text("last_run_month"), // 最後一次自動記帳的月份 YYYY-MM（同一個月只記一次）
+  ...timestamps,
+});
+
 export const schemaSql = sql;

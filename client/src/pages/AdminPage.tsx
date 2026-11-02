@@ -3,8 +3,9 @@ import { trpc } from "../lib/trpc";
 import { useAuth, ROLE_LABELS } from "../lib/auth";
 import SearchableSelect from "../components/SearchableSelect";
 import { toHalfWidth } from "../lib/textNormalize";
+import RecurringAdmin from "../components/RecurringAdmin";
 
-type Tab = "teachers" | "salespeople" | "expenseTypes" | "incomeTypes" | "users" | "revenue";
+type Tab = "teachers" | "salespeople" | "expenseTypes" | "incomeTypes" | "users" | "revenue" | "recurring" | "line";
 
 const BOOK_KIND_LABELS: Record<string, string> = { book: "講義", workbook: "刷題本", bundle: "組合包", notebook: "筆記本" };
 
@@ -445,6 +446,58 @@ function RevenueSettingsAdmin() {
   );
 }
 
+function LineNotifyAdmin() {
+  const status = trpc.notify.status.useQuery();
+  const test = trpc.notify.test.useMutation();
+  const [msg, setMsg] = useState<string | null>(null);
+  return (
+    <Section title="LINE 通知">
+      <div className="text-sm text-slate-600 space-y-1">
+        <p>設定好之後，LINE 官方帳號會傳這些通知給你：</p>
+        <ul className="list-disc pl-5">
+          <li>官網有新訂單、訂單狀態改變（例如待付款 → 已付款）時，馬上通知</li>
+          <li>每天早上 9 點：自動記了哪些定期收支、帳務檢查有沒有問題、官網訂單有沒有對不上、待付款超過 3 天的訂單（沒事就不傳）</li>
+        </ul>
+      </div>
+      <div className="text-sm">
+        目前狀態：
+        {status.data?.configured ? <span className="text-emerald-600 font-medium">已設定</span> : <span className="text-amber-600 font-medium">還沒設定</span>}
+      </div>
+      {!status.data?.configured && (
+        <div className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3 space-y-1">
+          <p>設定方式（金鑰不放在畫面上，要在電腦的 PowerShell 設定）：</p>
+          <ol className="list-decimal pl-5 space-y-1">
+            <li>LINE Developers → 澈點科學的 Messaging API channel → Messaging API 分頁，複製 Channel access token</li>
+            <li>同一個 channel 的 Basic settings 分頁最下面，複製「Your user ID」（U 開頭）</li>
+            <li>
+              在記帳系統資料夾執行 <code>npx.cmd wrangler secret put LINE_CHANNEL_ACCESS_TOKEN</code>，貼上 token；再執行{" "}
+              <code>npx.cmd wrangler secret put LINE_NOTIFY_TO</code>，貼上 user ID（多人用逗號分開）
+            </li>
+            <li>回到這頁按「傳測試訊息」</li>
+          </ol>
+        </div>
+      )}
+      <button
+        type="button"
+        className="btn-primary"
+        disabled={test.isPending}
+        onClick={async () => {
+          setMsg(null);
+          try {
+            await test.mutateAsync();
+            setMsg("已傳出，去 LINE 看看有沒有收到");
+          } catch (e: any) {
+            setMsg(e?.message ?? "傳送失敗");
+          }
+        }}
+      >
+        傳測試訊息
+      </button>
+      {msg && <div className="text-sm text-slate-600">{msg}</div>}
+    </Section>
+  );
+}
+
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("teachers");
   const tabs: { key: Tab; label: string }[] = [
@@ -453,6 +506,8 @@ export default function AdminPage() {
     { key: "expenseTypes", label: "支出類型管理" },
     { key: "incomeTypes", label: "收入類型管理" },
     { key: "revenue", label: "分潤設定" },
+    { key: "recurring", label: "定期收支" },
+    { key: "line", label: "LINE 通知" },
     { key: "users", label: "帳號與權限" },
   ];
 
@@ -476,6 +531,8 @@ export default function AdminPage() {
       {tab === "expenseTypes" && <ExpenseTypesAdmin />}
       {tab === "incomeTypes" && <IncomeTypesAdmin />}
       {tab === "revenue" && <RevenueSettingsAdmin />}
+      {tab === "recurring" && <RecurringAdmin />}
+      {tab === "line" && <LineNotifyAdmin />}
       {tab === "users" && <UsersAdmin />}
     </div>
   );

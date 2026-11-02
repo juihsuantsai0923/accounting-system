@@ -4,10 +4,11 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import MainLedgerPage from "./pages/MainLedgerPage";
-import { PersonDashboardPage, PersonLedgerPage } from "./pages/PersonPages";
+import { PersonDashboardPage, PersonLedgerPage, PersonStatementPage } from "./pages/PersonPages";
 import AdvancePaymentsPage from "./pages/AdvancePaymentsPage";
 import ReconcilePage from "./pages/ReconcilePage";
 import AdminPage from "./pages/AdminPage";
+import AnalyticsPage from "./pages/AnalyticsPage";
 import { SalespeopleDirectoryPage } from "./pages/PeopleDirectoryPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -38,8 +39,11 @@ export default function App() {
         <Route path="/teacher/:id/dashboard" element={<PersonDashboardPage kind="teacher" />} />
         <Route path="/salesperson/:id" element={<PersonLedgerPage kind="salesperson" />} />
         <Route path="/salesperson/:id/dashboard" element={<PersonDashboardPage kind="salesperson" />} />
+        <Route path="/teacher/:id/statement" element={<PersonStatementPage kind="teacher" />} />
+        <Route path="/salesperson/:id/statement" element={<PersonStatementPage kind="salesperson" />} />
         <Route path="/advance" element={<AdvancePaymentsPage />} />
         <Route path="/reconcile" element={<ReconcilePage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/admin" element={<AdminPage />} />
         {/* 改用 Google 登入後不需要帳號設定頁 */}
         <Route path="/account" element={<Navigate to="/" replace />} />

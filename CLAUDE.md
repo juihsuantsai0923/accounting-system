@@ -32,7 +32,7 @@ npm.cmd run cf:pages:deploy    # 建置並部署前端（改到 client/ 就要�
 npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X_xxx.sql   # 正式 D1 跑 migration
 ```
 
-- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0017（0017 把舊的書籍分潤列改成用書名當項目名稱，可重複執行；0016 加 revenue_settings.book_reserve_rate，ALTER 只能跑一次；0015 加 revenue_settings.reserve_rate／admin_fee_rate，ALTER 只能跑一次；0014 還原 0013：蔡睿軒回到 super_admin（linked_teacher_id=2）、leviaxlab.official 停用，可重複執行；0013 新增管理員 leviaxlab.official@gmail.com、蔡睿軒帳號降為 teacher_self，可重複執行；0012 把王歆宜帳號 email 改成她的 Gmail，可重複執行；0011 把舊記錄項目名稱改成完整名稱，可重複執行；0010 加 `main_ledger.edited_at` 並把舊備註改成統一格式，ALTER 只能跑一次；0009 加 `main_ledger.breakdown`，ALTER 只能跑一次；0008 是整合金鑰表，可重複執行；0007 是官網訂單快照表，可重複執行；0005 是小班家教課程與老師對應，可重複執行；0006 加課程上課期間、把舊行事曆收入標成書籍，ALTER 只能跑一次）。
+- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0018（0018 新增 recurring_entries 定期收支表，可重複執行；0017 把舊的書籍分潤列改成用書名當項目名稱，可重複執行；0016 加 revenue_settings.book_reserve_rate，ALTER 只能跑一次；0015 加 revenue_settings.reserve_rate／admin_fee_rate，ALTER 只能跑一次；0014 還原 0013：蔡睿軒回到 super_admin（linked_teacher_id=2）、leviaxlab.official 停用，可重複執行；0013 新增管理員 leviaxlab.official@gmail.com、蔡睿軒帳號降為 teacher_self，可重複執行；0012 把王歆宜帳號 email 改成她的 Gmail，可重複執行；0011 把舊記錄項目名稱改成完整名稱，可重複執行；0010 加 `main_ledger.edited_at` 並把舊備註改成統一格式，ALTER 只能跑一次；0009 加 `main_ledger.breakdown`，ALTER 只能跑一次；0008 是整合金鑰表，可重複執行；0007 是官網訂單快照表，可重複執行；0005 是小班家教課程與老師對應，可重複執行；0006 加課程上課期間、把舊行事曆收入標成書籍，ALTER 只能跑一次）。
 - **部署順序**：有新 migration 時，一定先跑 D1 migration，再 `wrangler deploy`，最後部署前端；Worker 先上線會因為欄位不存在而查詢失敗。
 - 改完要在回覆裡明確告訴使用者：要不要跑 `wrangler deploy`、要不要跑 migration。
 
@@ -111,6 +111,13 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - **官網自動同步**（2026-10-29）：官網伺服器在新訂單／狀態改變／商品改變時 POST 到 `/api/web-orders/push`（`Authorization: Bearer <自動同步金鑰>`，金鑰名 `web_orders_push`，跟書籤金鑰分開）。物件格式由 `handlePushRequest` 轉成書籤的陣列格式再走 `upsertWebOrders`／`upsertCatalog`；商品清單每份都是整份（沒送的那份不動）。規格給官網工程師：`docs/官網自動同步規格.md`。對帳頁上方「官網自動同步」顯示最後推送時間、產生金鑰；頁面每分鐘自動重新整理。書籤手動同步保留當備援。
 - **創始基金是要還的借款**（使用者 2026-10-27 確認）：記成收入並分回出資人子帳＝公司欠他；不算營業額；`personStats.loan` 會單獨列出，欠薪提醒會扣掉這部分。
 - 儀表板圖表（`client/src/components/DashboardCharts.tsx`，recharts）：月營業額（依收入來源堆疊，舊記錄用類別名稱推回來源）、每人營業額（`reports.personStats` 的 earned）、每人欠薪（balance）。「創始基金」視為股東投入，不算營業額。配色照 dataviz 規範驗證過，黃／綠對比不足所以附「顯示表格」。
+
+- **公司等級**（2026-11-03，`client/src/lib/levels.ts`、`LevelCard.tsx`）：累計營業額（不含創始基金）換算等級，Lv1＝1 萬；Lv1–10 每級 +1 萬、11–20 +2 萬、21–30 +5 萬、31–40 +10 萬、41–50 +20 萬、51 起 +50 萬；每 10 級一個稱號（起步、成長、突破、卓越、傳奇、殿堂）。管理員儀表板與老師儀表板最上方都有。
+- **分析頁**（`/analytics`，`AnalyticsPage.tsx`、`client/src/lib/analytics.ts`，老師／推銷者看不到）：損益表（每月／季／年，較上期、較去年同期；分潤算成本、薪水撥款不重複算、創始基金另列）＋客戶分析（以備註的買家姓名為客戶：客戶數、回購率、客單價、每月新客與回購、購買組合、各科人數、客戶排行）。
+- **定期收支**（管理面板「定期收支」，`server/recurring.ts`、`routers/recurring.ts`、表 `recurring_entries`）：使用者自己設定每月固定的收入或支出與幾號（1–28），不分給任何人；薪水類別不能設。
+- **每日排程**（`wrangler.toml [triggers]` 每天 UTC 01:00＝台灣 9 點，`server/dailyJob.ts`）：記到期的定期收支、帳務檢查、官網對帳（對不上、待付款超過 3 天），有事才發 LINE。
+- **LINE 通知**（`server/lineNotify.ts`、管理面板「LINE 通知」）：官網推送有新訂單或狀態改變時馬上通知、每日排程的提醒。金鑰是 Worker secret `LINE_CHANNEL_ACCESS_TOKEN`、`LINE_NOTIFY_TO`（LINE user ID，可逗號分多人），使用者自己用 `wrangler secret put` 設，不要幫他輸入；沒設就不發。
+- **月結對帳單**（`/teacher/:id/statement`、`/salesperson/:id/statement`，`PersonStatementPage`）：月初欠款、本月分潤明細（含買家）、本月撥款、代墊、月底欠款；「列印／存成 PDF」用瀏覽器列印，`.no-print` 的元素（頁首、按鈕）不印。
 
 ## 工作習慣
 

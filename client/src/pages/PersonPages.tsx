@@ -6,6 +6,7 @@ import ItemCell from "../components/ItemCell";
 import { downloadTextFile } from "../lib/download";
 import { BRAND, GRID, INK_MUTED, MonthlyRevenueChart, fmt, fmtShort, niceTicks, tooltipStyle } from "../components/DashboardCharts";
 import { ReserveTrendChart } from "../components/DashboardAnalytics";
+import LevelCard from "../components/LevelCard";
 
 /**
  * 老師／推銷者的個人頁：「儀表板」（累積分潤、已發放、每月發放圖）和「帳本」（子記帳表，唯讀，可篩選排序）。
@@ -33,7 +34,7 @@ function PersonHeader({ kind, id, name, right }: { kind: Kind; id: number; name?
   const tab = ({ isActive }: { isActive: boolean }) =>
     `px-4 py-1.5 rounded-full text-xs tracking-widest transition-all ${isActive ? "bg-brand-700 text-white" : "bg-brand-50 text-brand-700/60 hover:bg-brand-100"}`;
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-4">
         <h1 className="text-2xl text-brand-700">
           {name ?? "..."}
@@ -45,6 +46,9 @@ function PersonHeader({ kind, id, name, right }: { kind: Kind; id: number; name?
           </NavLink>
           <NavLink to={`/${kind}/${id}`} end className={tab}>
             帳本
+          </NavLink>
+          <NavLink to={`/${kind}/${id}/statement`} className={tab}>
+            月結對帳單
           </NavLink>
         </div>
       </div>
@@ -144,6 +148,7 @@ export function PersonDashboardPage({ kind }: { kind: Kind }) {
               <div className="text-xs text-slate-400 mt-1">收入留給公司的部分 − 公帳支出</div>
             </div>
           </div>
+          {revenue.data && <LevelCard entries={revenue.data} />}
           {revenue.data && timeline.data && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <MonthlyRevenueChart entries={revenue.data} courseNames={courseNames} />
@@ -401,6 +406,152 @@ export function PersonLedgerPage({ kind }: { kind: Kind }) {
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────── 月結對帳單 ───────────────────────────────
+/** 子記帳表一筆對餘額的影響（跟 server/ledger.ts ledgerDelta 一樣） */
+function deltaOf(r: any) {
+  if (r.sourceType === "advance") return r.personalAmount;
+  if (r.sourceType === "advance_settlement") return -r.personalAmount;
+  return r.type === "income" ? r.personalAmount : -r.personalAmount;
+}
+const monthKey = (ts: number) => {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+
+function StatementTable({ title, list, showBuyer }: { title: string; list: any[]; showBuyer?: boolean }) {
+  const total = list.reduce((s, r) => s + deltaOf(r), 0);
+  return (
+    <div>
+      <h3 className="font-medium text-brand-700 mb-2">{title}</h3>
+      {list.length ? (
+        <table className="data-table text-sm">
+          <thead>
+            <tr>
+              <th className="w-28">日期</th>
+              {showBuyer && <th className="w-24">買家</th>}
+              <th>項目</th>
+              <th className="text-right w-32">金額</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((r) => (
+              <tr key={r.id}>
+                <td>{new Date(r.createdAt).toLocaleDateString()}</td>
+                {showBuyer && <td>{r.buyer ?? "—"}</td>}
+                <td>{r.itemName}</td>
+                <td className="text-right tabular-nums">{fmt(Math.abs(deltaOf(r)))}</td>
+              </tr>
+            ))}
+            <tr className="font-medium bg-slate-50">
+              <td colSpan={showBuyer ? 3 : 2}>小計</td>
+              <td className="text-right tabular-nums">{fmt(Math.abs(total))}</td>
+            </tr>
+          </tbody>
+        </table>
+      ) : (
+        <p className="text-sm text-slate-400">這個月沒有</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 每月一張：月初公司欠多少、這個月分到哪些分潤、撥了哪些款、代墊，月底欠多少。
+ * 「列印／存成 PDF」用瀏覽器列印（頁首、按鈕不會印出來），發薪時一起給老師。
+ */
+export function PersonStatementPage({ kind }: { kind: Kind }) {
+  const { id, name } = usePerson(kind);
+  const teacherQ = trpc.teacherLedger.list.useQuery({ teacherId: id }, { enabled: kind === "teacher" && !!id });
+  const salesQ = trpc.salespersonLedger.list.useQuery({ salespersonId: id }, { enabled: kind === "salesperson" && !!id });
+  const q = kind === "teacher" ? teacherQ : salesQ;
+  const rows: any[] = q.data ?? [];
+  const months = useMemo(() => {
+    const s = new Set(rows.map((r) => monthKey(r.createdAt)));
+    s.add(monthKey(Date.now()));
+    return [...s].sort().reverse();
+  }, [rows]);
+  // 預設上個月（月初發薪時看的是上個月）
+  const [month, setMonth] = useState("");
+  const lastMonth = (() => {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - 1);
+    return monthKey(d.getTime());
+  })();
+  const selected = month || (months.includes(lastMonth) ? lastMonth : months[0]);
+
+  const opening = rows.filter((r) => monthKey(r.createdAt) < selected).reduce((s, r) => s + deltaOf(r), 0);
+  const inMonth = rows.filter((r) => monthKey(r.createdAt) === selected);
+  const earned = inMonth.filter((r) => r.sourceType === "distribution" && r.type === "income");
+  const paid = inMonth.filter((r) => r.sourceType === "distribution" && r.type !== "income");
+  const advances = inMonth.filter((r) => r.sourceType !== "distribution");
+  const total = (list: any[]) => list.reduce((s, r) => s + deltaOf(r), 0);
+  const closing = opening + total(inMonth);
+  const [y, m] = selected.split("-");
+
+  return (
+    <div className="space-y-6">
+      <PersonHeader
+        kind={kind}
+        id={id}
+        name={name}
+        right={
+          <div className="flex items-center gap-2">
+            <select className="input !w-36" value={selected} onChange={(e) => setMonth(e.target.value)}>
+              {months.map((mm) => (
+                <option key={mm} value={mm}>
+                  {mm.replace("-", " 年 ")} 月
+                </option>
+              ))}
+            </select>
+            <button className="btn-primary" onClick={() => window.print()}>
+              列印／存成 PDF
+            </button>
+          </div>
+        }
+      />
+      {q.error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{q.error.message}</div>}
+
+      <div className="card space-y-6 max-w-3xl mx-auto">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
+          <div>
+            <div className="text-xs text-slate-400 tracking-widest">澈點科學 Leviax Lab</div>
+            <h2 className="text-2xl text-brand-700 mt-1">月結對帳單</h2>
+            <div className="text-sm text-slate-600 mt-1">
+              {name ?? "…"}（{KIND_LABEL[kind]}）・{y} 年 {Number(m)} 月
+            </div>
+          </div>
+          <img src="/leviax-logo.png" alt="澈點科學" className="h-16 object-contain" />
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+          {[
+            { label: "月初公司欠款", value: opening, strong: false },
+            { label: "本月分潤", value: total(earned), strong: false },
+            { label: "本月已撥款", value: Math.abs(total(paid)), strong: false },
+            { label: "月底公司欠款", value: closing, strong: true },
+          ].map((k) => (
+            <div key={k.label} className={`rounded-lg p-3 ${k.strong ? "bg-brand-50" : "bg-slate-50"}`}>
+              <div className="text-slate-500">{k.label}</div>
+              <div className={`text-lg font-semibold mt-0.5 ${k.strong ? "text-brand-700" : "text-slate-800"}`}>{fmt(k.value)}</div>
+            </div>
+          ))}
+        </div>
+
+        <StatementTable title="本月分潤明細" list={earned} showBuyer />
+        <StatementTable title="本月撥款" list={paid} />
+        {advances.length > 0 && <StatementTable title="代墊（入帳＝公司欠你、核銷＝已還）" list={advances} />}
+
+        <p className="text-xs text-slate-400 border-t border-slate-200 pt-3">
+          月底公司欠款 ＝ 月初欠款 {fmt(opening)} ＋ 本月分潤 {fmt(total(earned))} − 本月撥款 {fmt(Math.abs(total(paid)))}
+          {advances.length > 0 && `${total(advances) >= 0 ? " ＋ " : " − "}代墊 ${fmt(Math.abs(total(advances)))}`} ＝ {fmt(closing)}。列印時間{" "}
+          {new Date().toLocaleString()}。
+        </p>
       </div>
     </div>
   );

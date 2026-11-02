@@ -145,6 +145,9 @@ export default function Layout() {
             <TabLink to="/ledger" onClick={closeMenu}>
               帳本
             </TabLink>
+            <TabLink to="/analytics" onClick={closeMenu}>
+              分析
+            </TabLink>
           </>
         )
       )}
@@ -162,7 +165,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen">
-      <header className="bg-white border-b-2 border-gold-400/50 shadow-header sticky top-0 z-10">
+      <header className="no-print bg-white border-b-2 border-gold-400/50 shadow-header sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <button

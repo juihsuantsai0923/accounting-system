@@ -15,6 +15,8 @@ import { revenueSettingsRouter } from "./revenueSettings";
 import { booksRouter } from "./books";
 import { couponsRouter } from "./coupons";
 import { webOrdersRouter } from "./webOrders";
+import { recurringRouter } from "./recurring";
+import { notifyRouter } from "./notify";
 
 export const appRouter = router({
   auth: authRouter,
@@ -33,6 +35,8 @@ export const appRouter = router({
   books: booksRouter,
   coupons: couponsRouter,
   webOrders: webOrdersRouter,
+  recurring: recurringRouter,
+  notify: notifyRouter,
 });
 
 export type AppRouter = typeof appRouter;
