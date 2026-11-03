@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
+import { trpc } from "../lib/trpc";
 import { toHalfWidth } from "../lib/textNormalize";
 import { GOOGLE_CLIENT_ID, startGoogleLogin, takeGoogleRedirectResult } from "../lib/googleRedirect";
 
@@ -46,6 +47,10 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   // 有設定 Google 登入時，密碼登入收起來當備用
   const [showPassword, setShowPassword] = useState(!GOOGLE_CLIENT_ID);
+  // 用 Google 登入但還沒有帳號：顯示申請表（credential 留著送申請時再驗證一次）
+  const [request, setRequest] = useState<{ credential: string; email: string; name: string; role: string; note: string } | null>(null);
+  const [requestSent, setRequestSent] = useState<string | null>(null);
+  const requestMutation = trpc.auth.requestAccess.useMutation();
 
   const handleGoogle = async (credential: string) => {
     setError(null);
@@ -55,9 +60,32 @@ export default function Login() {
       writeAccounts([signedIn, ...readAccounts().filter((a) => a !== signedIn)].slice(0, 5));
       navigate("/");
     } catch (err: any) {
-      setError(err?.message ?? "登入失敗");
+      const msg: string = err?.message ?? "登入失敗";
+      if (msg.startsWith("NO_ACCOUNT|")) {
+        const [, email, name] = msg.split("|");
+        setRequest({ credential, email, name: name ?? "", role: "", note: "" });
+      } else setError(msg);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const submitRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!request) return;
+    setError(null);
+    if (!request.role) return setError("請選擇你的身分");
+    try {
+      const r = await requestMutation.mutateAsync({
+        credential: request.credential,
+        name: request.name,
+        requestedRole: request.role as any,
+        note: request.note || undefined,
+      });
+      setRequestSent(r.email);
+      setRequest(null);
+    } catch (err: any) {
+      setError(err?.message ?? "送出失敗，請重新用 Google 登入一次");
     }
   };
 
@@ -99,6 +127,50 @@ export default function Login() {
       <p className="mt-1 text-xs text-brand-700/70 tracking-[0.4em]">Leviax Lab</p>
 
       <div className="mt-7 w-full max-w-[22rem] bg-white shadow-card-hover px-5 sm:px-7 py-7">
+        {requestSent ? (
+          <div className="text-center space-y-3">
+            <h2 className="text-lg text-brand-700 tracking-wider">申請已送出</h2>
+            <p className="text-sm text-slate-600">
+              已通知管理員幫 <b>{requestSent}</b> 開通。開通後回到這頁，再用 Google 登入一次就可以使用。
+            </p>
+            <button type="button" className="btn-secondary" onClick={() => setRequestSent(null)}>
+              回登入畫面
+            </button>
+          </div>
+        ) : request ? (
+          <form onSubmit={submitRequest} className="space-y-3">
+            <h2 className="text-center text-lg text-brand-700 tracking-wider">申請使用財務系統</h2>
+            <p className="text-center text-xs text-slate-500">
+              <b>{request.email}</b> 還沒有帳號。填好資料送出後，管理員會收到通知幫你開通。
+            </p>
+            {error && <div className="text-xs text-red-600 bg-red-50 px-3 py-2">{error}</div>}
+            <div>
+              <label className="label">姓名</label>
+              <input className="input" value={request.name} onChange={(e) => setRequest({ ...request, name: e.target.value })} required />
+            </div>
+            <div>
+              <label className="label">我是</label>
+              <select className="input" value={request.role} onChange={(e) => setRequest({ ...request, role: e.target.value })} required>
+                <option value="">請選擇</option>
+                <option value="teacher">老師</option>
+                <option value="salesperson">推銷員</option>
+                <option value="shipper">出貨員</option>
+                <option value="other">其他</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">備註（選填）</label>
+              <input className="input" value={request.note} onChange={(e) => setRequest({ ...request, note: e.target.value })} placeholder="例：負責寄書" />
+            </div>
+            <button className="btn-primary w-full" type="submit" disabled={requestMutation.isPending}>
+              {requestMutation.isPending ? "送出中..." : "送出申請"}
+            </button>
+            <button type="button" className="block mx-auto text-[11px] text-slate-400 hover:text-brand-700" onClick={() => setRequest(null)}>
+              取消，換其他帳號
+            </button>
+          </form>
+        ) : (
+        <>
         <h2 className="text-center text-lg text-brand-700 tracking-wider">歡迎回來</h2>
         <p className="mt-1.5 text-center text-xs text-slate-500 tracking-wide">登入後即可查看帳本、管理收支</p>
 
@@ -190,6 +262,8 @@ export default function Login() {
           >
             改用密碼登入
           </button>
+        )}
+        </>
         )}
 
         <p className="mt-6 text-center text-[11px] text-slate-400">僅限澈點科學團隊成員使用</p>

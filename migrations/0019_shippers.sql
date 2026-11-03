@@ -24,3 +24,17 @@ ALTER TABLE advance_payments ADD COLUMN category TEXT;
 -- 舊的「姓名_運費」代墊：拆出下訂人與類別（項目名稱不動）
 UPDATE advance_payments SET buyer = substr(item_name, 1, instr(item_name, '_運費') - 1), category = '運費'
   WHERE category IS NULL AND instr(item_name, '_運費') > 1;
+-- 帳號申請：沒有帳號的人用 Google 登入後填申請，LINE 通知管理員，到管理面板「帳號申請」核准
+CREATE TABLE IF NOT EXISTS account_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL,
+  name TEXT NOT NULL,
+  requested_role TEXT NOT NULL,
+  note TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  decided_by INTEGER,
+  decided_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS account_requests_email_idx ON account_requests(email);

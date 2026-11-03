@@ -21,6 +21,20 @@ export const createTableStatements: string[] = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS users_email_idx ON users(email)`,
 
+  `CREATE TABLE IF NOT EXISTS account_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    name TEXT NOT NULL,
+    requested_role TEXT NOT NULL,
+    note TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    decided_by INTEGER,
+    decided_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS account_requests_email_idx ON account_requests(email)`,
+
   `CREATE TABLE IF NOT EXISTS teachers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,

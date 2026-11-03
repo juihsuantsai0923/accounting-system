@@ -4,8 +4,9 @@ import { useAuth, ROLE_LABELS } from "../lib/auth";
 import SearchableSelect from "../components/SearchableSelect";
 import { toHalfWidth } from "../lib/textNormalize";
 import RecurringAdmin from "../components/RecurringAdmin";
+import { useSearchParams } from "react-router-dom";
 
-type Tab = "teachers" | "salespeople" | "shippers" | "expenseTypes" | "incomeTypes" | "users" | "revenue" | "recurring" | "line";
+type Tab = "requests" | "teachers" | "salespeople" | "shippers" | "expenseTypes" | "incomeTypes" | "users" | "revenue" | "recurring" | "line";
 
 const BOOK_KIND_LABELS: Record<string, string> = { book: "講義", workbook: "刷題本", bundle: "組合包", notebook: "筆記本" };
 
@@ -15,6 +16,146 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h2 className="font-medium text-brand-700">{title}</h2>
       {children}
     </div>
+  );
+}
+
+const REQUESTED_LABELS: Record<string, string> = { teacher: "老師", salesperson: "推銷員", shipper: "出貨員", other: "其他" };
+const REQUESTED_TO_ROLE: Record<string, string> = { teacher: "teacher_self", salesperson: "salesperson_self", shipper: "shipper_self", other: "finance_staff" };
+const STATUS_LABELS: Record<string, string> = { pending: "待處理", approved: "已核准", rejected: "已拒絕" };
+
+/** 一筆待處理申請：選角色、綁定的人（或新增），核准／拒絕 */
+function RequestRow({ req, onDone }: { req: any; onDone: () => void }) {
+  const teachersQuery = trpc.teachers.list.useQuery();
+  const salespeopleQuery = trpc.salespeople.list.useQuery();
+  const shippersQuery = trpc.shippers.list.useQuery();
+  const approve = trpc.accountRequests.approve.useMutation({ onSuccess: onDone });
+  const reject = trpc.accountRequests.reject.useMutation({ onSuccess: onDone });
+  const [role, setRole] = useState(REQUESTED_TO_ROLE[req.requestedRole] ?? "finance_staff");
+  const [linked, setLinked] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+
+  const people =
+    role === "teacher_self" ? teachersQuery.data : role === "salesperson_self" ? salespeopleQuery.data : role === "shipper_self" ? shippersQuery.data : null;
+  const kindLabel = role === "teacher_self" ? "教師" : role === "salesperson_self" ? "推銷者" : "出貨員";
+  // 名單裡有同名的人就預設選他，沒有就預設「新增」
+  const sameName = people?.find((p: any) => p.name === req.name);
+  const linkedValue = linked || (people ? (sameName ? String(sameName.id) : "new") : "");
+
+  async function handleApprove() {
+    setError(null);
+    try {
+      await approve.mutateAsync({
+        id: req.id,
+        role: role as any,
+        linkedId: people && linkedValue !== "new" ? Number(linkedValue) : undefined,
+        newPersonName: people && linkedValue === "new" ? req.name : undefined,
+      });
+    } catch (err: any) {
+      setError(err?.message ?? "核准失敗");
+    }
+  }
+
+  return (
+    <li className="py-3 space-y-2">
+      <div className="text-sm">
+        <b>{req.name}</b>（{req.email}）
+        <span className="ml-2 text-slate-500">申請身分：{REQUESTED_LABELS[req.requestedRole] ?? req.requestedRole}</span>
+        {req.note && <span className="ml-2 text-slate-500">備註：{req.note}</span>}
+        <span className="ml-2 text-xs text-slate-400">{new Date(req.createdAt).toLocaleString()}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          className="input !w-40"
+          value={role}
+          onChange={(e) => {
+            setRole(e.target.value);
+            setLinked("");
+          }}
+        >
+          {Object.entries(ROLE_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+        {people && (
+          <select className="input !w-56" value={linkedValue} onChange={(e) => setLinked(e.target.value)}>
+            <option value="new">新增{kindLabel}「{req.name}」</option>
+            {people.map((p: any) => (
+              <option key={p.id} value={p.id}>
+                綁定：{p.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <button className="btn-primary" type="button" disabled={approve.isPending} onClick={handleApprove}>
+          核准
+        </button>
+        <button
+          className="btn-danger"
+          type="button"
+          disabled={reject.isPending}
+          onClick={() => confirm(`拒絕 ${req.name} 的申請？`) && reject.mutate({ id: req.id })}
+        >
+          拒絕
+        </button>
+      </div>
+      {role === "super_admin" && <div className="text-xs text-red-600">系統管理員可以看到並修改所有帳目，確定要給嗎？</div>}
+      {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
+    </li>
+  );
+}
+
+function AccountRequestsAdmin() {
+  const utils = trpc.useUtils();
+  const listQuery = trpc.accountRequests.list.useQuery();
+  const deleteMutation = trpc.accountRequests.delete.useMutation({ onSuccess: () => utils.accountRequests.invalidate() });
+  const onDone = () => {
+    utils.accountRequests.invalidate();
+    utils.users.list.invalidate();
+    utils.teachers.list.invalidate();
+    utils.salespeople.list.invalidate();
+    utils.shippers.list.invalidate();
+  };
+  const all = listQuery.data ?? [];
+  const pending = all.filter((r) => r.status === "pending");
+  const done = all.filter((r) => r.status !== "pending");
+
+  return (
+    <Section title="帳號申請">
+      <p className="text-xs text-slate-500">
+        沒有帳號的人用 Google 登入時會填申請（姓名、身分、備註），LINE 會通知你。核准時決定角色：教師本人、推銷者本人、出貨員都只看得到自己的資料，而且一定要綁定一個人（名單裡沒有可以直接新增）。核准後對方再用 Google 登入一次就能用。
+      </p>
+      {pending.length === 0 ? (
+        <div className="text-sm text-slate-400">目前沒有待處理的申請</div>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          {pending.map((r) => (
+            <RequestRow key={r.id} req={r} onDone={onDone} />
+          ))}
+        </ul>
+      )}
+      {done.length > 0 && (
+        <details className="text-sm">
+          <summary className="cursor-pointer text-slate-500">已處理的申請（{done.length}）</summary>
+          <ul className="divide-y divide-slate-100 mt-2">
+            {done.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span>
+                  {r.name}（{r.email}）
+                  <span className={r.status === "approved" ? "text-emerald-600 ml-2" : "text-red-600 ml-2"}>{STATUS_LABELS[r.status]}</span>
+                </span>
+                {r.status === "rejected" && (
+                  <button className="btn-secondary" type="button" onClick={() => deleteMutation.mutate({ id: r.id })}>
+                    刪除紀錄（讓他可以重新申請）
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </Section>
   );
 }
 
@@ -617,8 +758,12 @@ function LineNotifyAdmin() {
 }
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<Tab>("teachers");
+  const [params] = useSearchParams();
+  const pendingQuery = trpc.accountRequests.pendingCount.useQuery();
+  const [tab, setTab] = useState<Tab>((params.get("tab") as Tab) || "teachers");
+  const pending = pendingQuery.data ?? 0;
   const tabs: { key: Tab; label: string }[] = [
+    { key: "requests", label: pending ? `帳號申請（${pending}）` : "帳號申請" },
     { key: "teachers", label: "教師管理" },
     { key: "salespeople", label: "推銷者管理" },
     { key: "shippers", label: "出貨員與代墊類別" },
@@ -645,6 +790,7 @@ export default function AdminPage() {
           </button>
         ))}
       </div>
+      {tab === "requests" && <AccountRequestsAdmin />}
       {tab === "teachers" && <TeachersAdmin />}
       {tab === "salespeople" && <SalespeopleAdmin />}
       {tab === "shippers" && <ShippersAdmin />}

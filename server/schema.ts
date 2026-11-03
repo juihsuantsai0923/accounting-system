@@ -28,6 +28,23 @@ export const users = sqliteTable(
   })
 );
 
+// ── AccountRequests / 帳號申請（沒有帳號的人用 Google 登入時填的申請，管理員核准才建立帳號） ─────────────────────────────
+export const accountRequests = sqliteTable(
+  "account_requests",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    email: text("email").notNull(), // 一律小寫
+    name: text("name").notNull(),
+    requestedRole: text("requested_role").notNull(), // teacher | salesperson | shipper | other（只是參考，核准時由管理員決定）
+    note: text("note"),
+    status: text("status").notNull().default("pending"), // pending | approved | rejected
+    decidedBy: integer("decided_by"),
+    decidedAt: integer("decided_at"),
+    ...timestamps,
+  },
+  (t) => ({ emailIdx: uniqueIndex("account_requests_email_idx").on(t.email) })
+);
+
 // ── Teachers / 教師 ─────────────────────────────
 export const teachers = sqliteTable(
   "teachers",

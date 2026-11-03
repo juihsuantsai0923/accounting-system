@@ -46,6 +46,7 @@ export default function Dashboard() {
   const integrityQuery = trpc.reports.integrity.useQuery(undefined, { enabled: !isSelfRole });
   const advancesQuery = trpc.advancePayments.list.useQuery({ status: "unsettled" }, { enabled: !isSelfRole });
   const reconcileQuery = trpc.webOrders.reconcile.useQuery(undefined, { enabled: !isSelfRole });
+  const pendingRequestsQuery = trpc.accountRequests.pendingCount.useQuery(undefined, { enabled: user?.role === "super_admin" });
   const receivable = reconcileQuery.data?.receivable;
   const reconcileIssues = (reconcileQuery.data?.orders ?? []).filter((o) =>
     ["missing", "probable", "mismatch", "matched_gross"].includes(o.result)
@@ -105,6 +106,12 @@ export default function Dashboard() {
         <h1 className="text-2xl text-brand-700">儀表板總覽</h1>
         <MonthlyReportButton entries={entries} timeline={timeline} stats={stats} courseNames={courseNames} />
       </div>
+
+      {(pendingRequestsQuery.data ?? 0) > 0 && (
+        <Link to="/admin?tab=requests" className="card block border-l-4 border-amber-500 hover:shadow-card-hover transition-shadow">
+          <div className="text-sm text-amber-700">🔔 有 {pendingRequestsQuery.data} 個帳號申請等你處理 →</div>
+        </Link>
+      )}
 
       <div className="card border-l-4 border-gold-500">
         <div className="text-sm text-slate-500">公積金（公司自己的錢）</div>
