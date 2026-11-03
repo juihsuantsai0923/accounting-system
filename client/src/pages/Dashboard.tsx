@@ -34,7 +34,7 @@ export default function Dashboard() {
   // 教師/推銷者本人帳號沒有母記帳表／全公司應付總覽的權限（後端也已經擋下來），
   // 這個總覽頁是給財務人員看全公司數字用的，本人帳號應該直接看自己的子記帳表就好，
   // 所以這兩個查詢對本人角色一律不觸發，避免打到會被後端拒絕的 API。
-  const isSelfRole = user?.role === "teacher_self" || user?.role === "salesperson_self";
+  const isSelfRole = user?.role === "teacher_self" || user?.role === "salesperson_self" || user?.role === "shipper_self";
   const overviewQuery = trpc.reports.balanceOverview.useQuery(undefined, { enabled: !isSelfRole });
   const mainLedgerQuery = trpc.mainLedger.list.useQuery(undefined, { enabled: !isSelfRole });
   const personStatsQuery = trpc.reports.personStats.useQuery(undefined, { enabled: !isSelfRole });
@@ -61,10 +61,12 @@ export default function Dashboard() {
   const totalExpense = (mainLedgerQuery.data ?? []).filter((e) => e.type === "expense").reduce((s, e) => s + e.amount, 0);
   const currentBalance = mainLedgerQuery.data?.length ? mainLedgerQuery.data[mainLedgerQuery.data.length - 1].balance : 0;
 
-  const totalUnsettledAdvance = (overviewQuery.data ?? []).reduce((s, r) => s + r.unsettledAdvanceTotal, 0);
+  // 出貨員沒有子記帳表分潤，欠他的錢＝他還沒核銷的代墊
+  const shipperOwed = (advancesQuery.data ?? []).filter((a) => a.recipientType === "shipper").reduce((s, a) => s + a.amount, 0);
+  const totalUnsettledAdvance = (overviewQuery.data ?? []).reduce((s, r) => s + r.unsettledAdvanceTotal, 0) + shipperOwed;
   const totalOwed = (overviewQuery.data ?? []).reduce((s, r) => s + Math.max(r.totalBalance, 0), 0);
   // 公積金＝公司帳上的錢扣掉還欠每個人的錢（含代墊）；有人被多付（餘額為負）會反過來加回公積金
-  const netOwed = (overviewQuery.data ?? []).reduce((s, r) => s + r.totalBalance, 0);
+  const netOwed = (overviewQuery.data ?? []).reduce((s, r) => s + r.totalBalance, 0) + shipperOwed;
   const reserveFund = currentBalance - netOwed;
 
   function handleExportOverviewCsv() {
@@ -88,6 +90,7 @@ export default function Dashboard() {
       <div className="p-8 text-center text-slate-400">尚未綁定教師資料，請聯絡管理員設定帳號。</div>
     );
   }
+  if (user?.role === "shipper_self") return <Navigate to="/advance" replace />;
   if (user?.role === "salesperson_self") {
     return user.linkedSalespersonId ? (
       <Navigate to={`/salesperson/${user.linkedSalespersonId}/dashboard`} replace />

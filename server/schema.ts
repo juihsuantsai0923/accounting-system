@@ -14,10 +14,11 @@ export const users = sqliteTable(
     email: text("email").notNull(),
     passwordHash: text("password_hash").notNull(),
     name: text("name").notNull(),
-    // super_admin / finance_staff / teacher_self / salesperson_self
+    // super_admin / finance_staff / teacher_self / salesperson_self / shipper_self
     role: text("role").notNull().default("finance_staff"),
     linkedTeacherId: integer("linked_teacher_id"),
     linkedSalespersonId: integer("linked_salesperson_id"),
+    linkedShipperId: integer("linked_shipper_id"),
     isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
     lastSignedIn: integer("last_signed_in"),
     ...timestamps,
@@ -53,6 +54,30 @@ export const salespeople = sqliteTable(
     ...timestamps,
   },
   (t) => ({ nameIdx: uniqueIndex("salespeople_name_idx").on(t.name) })
+);
+
+// ── Shippers / 出貨員（只能登記自己的代墊；子記帳表＝自己的代墊與核銷，不分潤） ─────────────────────────────
+export const shippers = sqliteTable(
+  "shippers",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    note: text("note"),
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    ...timestamps,
+  },
+  (t) => ({ nameIdx: uniqueIndex("shippers_name_idx").on(t.name) })
+);
+
+// ── AdvanceCategories / 代墊類別（運費、其他，填代墊時可以直接新增） ─────────────────────────────
+export const advanceCategories = sqliteTable(
+  "advance_categories",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+  },
+  (t) => ({ nameIdx: uniqueIndex("advance_categories_name_idx").on(t.name) })
 );
 
 // ── Courses / 課程 ─────────────────────────────
@@ -195,9 +220,13 @@ export const salespersonLedger = sqliteTable("salesperson_ledger", {
 // ── AdvancePayments / 代墊記錄表 ─────────────────────────────
 export const advancePayments = sqliteTable("advance_payments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  recipientType: text("recipient_type").notNull(), // teacher | salesperson
+  recipientType: text("recipient_type").notNull(), // teacher | salesperson | shipper
   recipientId: integer("recipient_id").notNull(),
-  itemName: text("item_name").notNull(),
+  itemName: text("item_name").notNull(), // 自動組成「下訂人_類別」
+  orderName: text("order_name"), // 訂單名稱（官網訂單＝編號＋品項，或手打）
+  orderNo: text("order_no"), // 從官網訂單選的才有
+  buyer: text("buyer"), // 下訂人（只存姓名）
+  category: text("category"), // 運費、其他…（advance_categories）
   amount: integer("amount").notNull(),
   status: text("status").notNull().default("unsettled"), // unsettled | settled
   settledByMainLedgerId: integer("settled_by_main_ledger_id"),

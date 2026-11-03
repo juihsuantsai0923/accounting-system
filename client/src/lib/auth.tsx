@@ -5,9 +5,10 @@ interface AuthUser {
   id: number;
   email: string;
   name: string;
-  role: "super_admin" | "finance_staff" | "teacher_self" | "salesperson_self";
+  role: "super_admin" | "finance_staff" | "teacher_self" | "salesperson_self" | "shipper_self";
   linkedTeacherId: number | null;
   linkedSalespersonId: number | null;
+  linkedShipperId: number | null;
   /** 原本的角色（切換成老師身分時 role 會是 teacher_self，這裡仍是 super_admin） */
   realRole?: string;
 }
@@ -70,6 +71,7 @@ export const ROLE_LABELS: Record<string, string> = {
   finance_staff: "財務人員",
   teacher_self: "教師本人",
   salesperson_self: "推銷者本人",
+  shipper_self: "出貨員",
 };
 
 /** 能不能改帳（記帳、編輯、刪除、管理面板）：只有系統管理員；財務人員唯讀 */

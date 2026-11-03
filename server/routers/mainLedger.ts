@@ -35,7 +35,7 @@ const distributionInput = z.object({
  * 目前餘額＝所有沒刪除記錄的收入－支出（每次重新加總）。
  * 不直接拿上一筆存的 balance：如果有記錄在系統外被刪掉（沒經過 delete 重算），上一筆的 balance 會過期，新記錄就會跟著錯。
  */
-async function getLatestBalance(db: any) {
+export async function getLatestBalance(db: any) {
   const rows: { type: string; amount: number }[] = await db
     .select({ type: mainLedger.type, amount: mainLedger.amount })
     .from(mainLedger)

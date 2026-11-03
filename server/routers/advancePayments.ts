@@ -1,11 +1,102 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, staffProcedure } from "../trpc";
-import { advancePayments, teacherLedger, salespersonLedger } from "../schema";
-import { and, desc, eq } from "drizzle-orm";
+import { advancePayments, advanceCategories, teacherLedger, salespersonLedger, expenseTypes, mainLedger, shippers, webOrders } from "../schema";
+import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { getCurrentBalance, recalculateBalance, writeAudit } from "../ledger";
+import { getLatestBalance } from "./mainLedger";
 
-const recipientTypeSchema = z.enum(["teacher", "salesperson"]);
+const recipientTypeSchema = z.enum(["teacher", "salesperson", "shipper"]);
+type AdvanceRow = typeof advancePayments.$inferSelect;
+
+const fieldsInput = {
+  orderName: z.string().trim().max(200).optional(),
+  orderNo: z.string().trim().max(50).optional(),
+  buyer: z.string().trim().max(50).optional(),
+  category: z.string().trim().min(1, "請選類別").max(30),
+  amount: z.string().regex(/^\d+$/, "金額必須為整數"),
+  note: z.string().optional(),
+  /** 手動記帳頁的代墊沿用自己打的項目名稱；代墊管理頁不給，自動組成 */
+  itemName: z.string().trim().max(200).optional(),
+};
+
+/** 代墊項目名稱沿用舊格式「下訂人_類別」（沒有下訂人就用訂單名稱） */
+export function advanceItemName(f: { buyer?: string | null; orderName?: string | null; category: string }) {
+  const who = f.buyer?.trim() || f.orderName?.trim();
+  return who ? `${who}_${f.category}` : f.category;
+}
+
+/** 代墊類別對應到帳本的支出類型（出貨員代墊核銷時用）；「其他」併進既有的「其他支出」 */
+export function expenseTypeNameFor(category: string) {
+  return category === "其他" ? "其他支出" : category;
+}
+
+async function ensureCategory(db: any, name: string) {
+  const [found] = await db.select().from(advanceCategories).where(eq(advanceCategories.name, name)).limit(1);
+  if (!found) await db.insert(advanceCategories).values({ name });
+}
+
+/** 出貨員只能動自己的、還沒核銷的代墊；管理員可以動所有沒核銷的 */
+function assertCanEdit(user: any, advance: AdvanceRow) {
+  if (user.role === "shipper_self") {
+    if (advance.recipientType !== "shipper" || advance.recipientId !== user.linkedShipperId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "只能修改自己的代墊" });
+    }
+  } else if (user.role !== "super_admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "只有系統管理員可以修改帳目" });
+  }
+  if (advance.status !== "unsettled") throw new TRPCError({ code: "BAD_REQUEST", message: "已核銷的代墊不能修改" });
+}
+
+function ledgerTableOf(type: string) {
+  return (type === "teacher" ? teacherLedger : salespersonLedger) as typeof teacherLedger;
+}
+
+/**
+ * 出貨員代墊核銷：公司把錢還給出貨員，這時候才是公司的支出。
+ * 依類別各記一筆帳本支出（運費、其他支出…），代墊標成已核銷並連到那筆支出；之後刪掉那筆支出，代墊會自動退回未核銷。
+ */
+export async function settleShipperAdvances(db: any, userId: number, list: AdvanceRow[]) {
+  if (!list.length) return [];
+  const [shipper] = await db.select().from(shippers).where(eq(shippers.id, list[0].recipientId)).limit(1);
+  const shipperName = shipper?.name ?? `#${list[0].recipientId}`;
+  const groups = new Map<string, AdvanceRow[]>();
+  for (const a of list) {
+    const key = expenseTypeNameFor(a.category || "其他");
+    groups.set(key, [...(groups.get(key) ?? []), a]);
+  }
+  const entries = [];
+  for (const [typeName, rows] of groups) {
+    let [type] = await db.select().from(expenseTypes).where(eq(expenseTypes.name, typeName)).limit(1);
+    if (!type) [type] = await db.insert(expenseTypes).values({ name: typeName }).returning();
+    const amount = rows.reduce((s, a) => s + a.amount, 0);
+    const prev = await getLatestBalance(db);
+    const [entry] = await db
+      .insert(mainLedger)
+      .values({
+        type: "expense",
+        itemName: `出貨員代墊－${typeName}（${shipperName}，${rows.length} 筆）`,
+        categoryId: type.id,
+        categoryName: type.name,
+        amount,
+        balance: prev - amount,
+        note: rows.map((a) => `${a.orderName || a.buyer || a.itemName} ${a.amount}`).join("；"),
+        editedBy: userId,
+        editedAt: Date.now(),
+      })
+      .returning();
+    for (const a of rows) {
+      await db
+        .update(advancePayments)
+        .set({ status: "settled", settledByMainLedgerId: entry.id, settledAt: Date.now(), updatedAt: Date.now() })
+        .where(eq(advancePayments.id, a.id));
+      await writeAudit(db, userId, "settle", "advancePayment", a.id, a, { status: "settled", settledByMainLedgerId: entry.id });
+    }
+    await writeAudit(db, userId, "create", "mainLedger", entry.id, null, entry);
+    entries.push(entry);
+  }
+  return entries;
+}
 
 export const advancePaymentsRouter = router({
   list: protectedProcedure
@@ -25,6 +116,9 @@ export const advancePaymentsRouter = router({
       } else if (ctx.user.role === "salesperson_self") {
         recipientType = "salesperson";
         recipientId = ctx.user.linkedSalespersonId ?? -1;
+      } else if (ctx.user.role === "shipper_self") {
+        recipientType = "shipper";
+        recipientId = ctx.user.linkedShipperId ?? -1;
       }
 
       const conditions = [] as any[];
@@ -39,57 +133,131 @@ export const advancePaymentsRouter = router({
       return query.orderBy(desc(advancePayments.id));
     }),
 
-  create: staffProcedure
-    .input(
-      z.object({
-        recipientType: recipientTypeSchema,
-        recipientId: z.number(),
-        itemName: z.string().min(1),
-        amount: z.string().regex(/^\d+$/, "金額必須為整數"),
-        note: z.string().optional(),
-        attachmentUrl: z.string().optional(),
-      })
-    )
+  /** 管理員可以替任何人新增；出貨員只能新增自己的 */
+  create: protectedProcedure
+    .input(z.object({ recipientType: recipientTypeSchema.optional(), recipientId: z.number().optional(), ...fieldsInput }))
     .mutation(async ({ ctx, input }) => {
       const db = ctx.db;
+      let recipientType = input.recipientType;
+      let recipientId = input.recipientId;
+      if (ctx.user.role === "shipper_self") {
+        if (!ctx.user.linkedShipperId) throw new TRPCError({ code: "FORBIDDEN", message: "這個帳號還沒綁定出貨員，請找管理員設定" });
+        recipientType = "shipper";
+        recipientId = ctx.user.linkedShipperId;
+      } else if (ctx.user.role !== "super_admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "只有系統管理員可以修改帳目" });
+      }
+      if (!recipientType || !recipientId) throw new TRPCError({ code: "BAD_REQUEST", message: "請選擇代墊的人" });
       const amount = parseInt(input.amount, 10);
       if (amount <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "代墊金額必須大於 0" });
 
+      await ensureCategory(db, input.category);
+      const itemName = input.itemName || advanceItemName(input);
       const [advance] = await db
         .insert(advancePayments)
         .values({
-          recipientType: input.recipientType,
-          recipientId: input.recipientId,
-          itemName: input.itemName,
+          recipientType,
+          recipientId,
+          itemName,
+          orderName: input.orderName || null,
+          orderNo: input.orderNo || null,
+          buyer: input.buyer || null,
+          category: input.category,
           amount,
-          note: input.note,
-          attachmentUrl: input.attachmentUrl,
+          note: input.note || null,
           editedBy: ctx.user.id,
         })
         .returning();
 
-      const ledgerTable = input.recipientType === "teacher" ? teacherLedger : salespersonLedger;
-      const recipientColumn = input.recipientType === "teacher" ? "teacherId" : "salespersonId";
-      const currentBalance = await getCurrentBalance(db, input.recipientType, input.recipientId);
-
-      await db.insert(ledgerTable).values({
-        [recipientColumn]: input.recipientId,
-        mainLedgerId: null,
-        advancePaymentId: advance.id,
-        sourceType: "advance",
-        type: "advance",
-        itemName: input.itemName,
-        categoryId: null,
-        categoryName: "代墊款",
-        originalAmount: amount,
-        personalAmount: amount,
-        personalBalance: currentBalance + amount,
-        editedBy: ctx.user.id,
-      } as any);
+      // 出貨員沒有分潤，子記帳表直接用代墊紀錄本身；教師、推銷者照舊寫進子記帳表
+      if (recipientType !== "shipper") {
+        const ledgerTable = ledgerTableOf(recipientType);
+        const recipientColumn = recipientType === "teacher" ? "teacherId" : "salespersonId";
+        const currentBalance = await getCurrentBalance(db, recipientType, recipientId);
+        await db.insert(ledgerTable).values({
+          [recipientColumn]: recipientId,
+          mainLedgerId: null,
+          advancePaymentId: advance.id,
+          sourceType: "advance",
+          type: "advance",
+          itemName,
+          categoryId: null,
+          categoryName: "代墊款",
+          originalAmount: amount,
+          personalAmount: amount,
+          personalBalance: currentBalance + amount,
+          editedBy: ctx.user.id,
+        } as any);
+      }
 
       await writeAudit(db, ctx.user.id, "create", "advancePayment", advance.id, null, advance);
       return advance;
     }),
+
+  update: protectedProcedure.input(z.object({ id: z.number(), ...fieldsInput })).mutation(async ({ ctx, input }) => {
+    const db = ctx.db;
+    const [advance] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
+    if (!advance) throw new TRPCError({ code: "NOT_FOUND", message: "代墊記錄不存在" });
+    assertCanEdit(ctx.user, advance);
+    const amount = parseInt(input.amount, 10);
+    if (amount <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "代墊金額必須大於 0" });
+
+    await ensureCategory(db, input.category);
+    const itemName = input.itemName || advanceItemName(input);
+    const patch = {
+      itemName,
+      orderName: input.orderName || null,
+      orderNo: input.orderNo || null,
+      buyer: input.buyer || null,
+      category: input.category,
+      amount,
+      note: input.note || null,
+      editedBy: ctx.user.id,
+      updatedAt: Date.now(),
+    };
+    await db.update(advancePayments).set(patch).where(eq(advancePayments.id, input.id));
+
+    if (advance.recipientType !== "shipper") {
+      const tbl = ledgerTableOf(advance.recipientType);
+      await db
+        .update(tbl)
+        .set({ itemName, originalAmount: amount, personalAmount: amount, updatedAt: Date.now() })
+        .where(and(eq(tbl.advancePaymentId, advance.id), eq(tbl.sourceType, "advance")));
+      if (amount !== advance.amount) await recalculateBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
+    }
+    await writeAudit(db, ctx.user.id, "update", "advancePayment", input.id, advance, { ...advance, ...patch });
+    return { ok: true };
+  }),
+
+  categories: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.db.select().from(advanceCategories).orderBy(advanceCategories.id);
+  }),
+
+  addCategory: protectedProcedure.input(z.object({ name: z.string().trim().min(1).max(30) })).mutation(async ({ ctx, input }) => {
+    if (!["super_admin", "shipper_self"].includes(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "沒有權限新增類別" });
+    await ensureCategory(ctx.db, input.name);
+    return { name: input.name };
+  }),
+
+  deleteCategory: staffProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+    await ctx.db.delete(advanceCategories).where(eq(advanceCategories.id, input.id));
+  }),
+
+  /** 填代墊時可以選的官網訂單（最近 120 天、沒取消的）；只給訂單編號、日期、下訂人姓名、品項 */
+  orderOptions: protectedProcedure.query(async ({ ctx }) => {
+    if (!["super_admin", "shipper_self"].includes(ctx.user.role)) return [];
+    const since = Date.now() - 120 * 86400_000;
+    const rows = await ctx.db.select().from(webOrders).where(gte(webOrders.orderedAt, since)).orderBy(desc(webOrders.orderedAt));
+    return rows
+      .filter((o: any) => o.tab !== "cancelled")
+      .map((o: any) => {
+        let items: string[] = [];
+        try {
+          items = (JSON.parse(o.items) as { name: string }[]).map((i) => i.name);
+        } catch {}
+        return { orderNo: o.orderNo as string, orderedAt: o.orderedAt as number, buyer: o.buyer as string, items };
+      });
+  }),
 
   settle: staffProcedure
     .input(z.object({ id: z.number(), mainLedgerId: z.number().nullable().optional() }))
@@ -98,6 +266,12 @@ export const advancePaymentsRouter = router({
       const [advance] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
       if (!advance) throw new TRPCError({ code: "NOT_FOUND", message: "代墊記錄不存在" });
       if (advance.status !== "unsettled") throw new TRPCError({ code: "BAD_REQUEST", message: "此代墊已核銷" });
+
+      if (advance.recipientType === "shipper") {
+        await settleShipperAdvances(db, ctx.user.id, [advance]);
+        const [updated] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
+        return updated;
+      }
 
       const mainLedgerId = input.mainLedgerId ?? null;
 
@@ -108,7 +282,7 @@ export const advancePaymentsRouter = router({
 
       // 情境 B：非併入正式撥款，需另外建立沖銷分錄
       if (!mainLedgerId) {
-        const ledgerTable = advance.recipientType === "teacher" ? teacherLedger : salespersonLedger;
+        const ledgerTable = ledgerTableOf(advance.recipientType);
         const recipientColumn = advance.recipientType === "teacher" ? "teacherId" : "salespersonId";
         const currentBalance = await getCurrentBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
 
@@ -133,21 +307,44 @@ export const advancePaymentsRouter = router({
       return updated;
     }),
 
+  /** 一次還清某位出貨員所有（或勾選的）未核銷代墊 */
+  settleShipper: staffProcedure
+    .input(z.object({ shipperId: z.number(), ids: z.array(z.number()).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const conditions = [
+        eq(advancePayments.recipientType, "shipper"),
+        eq(advancePayments.recipientId, input.shipperId),
+        eq(advancePayments.status, "unsettled"),
+      ];
+      if (input.ids?.length) conditions.push(inArray(advancePayments.id, input.ids));
+      const list = await ctx.db.select().from(advancePayments).where(and(...conditions));
+      if (!list.length) throw new TRPCError({ code: "BAD_REQUEST", message: "沒有未核銷的代墊" });
+      const entries = await settleShipperAdvances(ctx.db, ctx.user.id, list);
+      return { count: list.length, total: list.reduce((s: number, a: AdvanceRow) => s + a.amount, 0), entries: entries.length };
+    }),
+
   unsettle: staffProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
     const db = ctx.db;
     const [advance] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
     if (!advance) throw new TRPCError({ code: "NOT_FOUND", message: "代墊記錄不存在" });
     if (advance.status !== "settled") throw new TRPCError({ code: "BAD_REQUEST", message: "此代墊尚未核銷" });
+    if (advance.recipientType === "shipper" && advance.settledByMainLedgerId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `這筆是跟帳本 #${advance.settledByMainLedgerId} 一起核銷的，請到帳本刪除那筆支出，裡面的代墊會一起退回未核銷`,
+      });
+    }
 
-    const ledgerTable = (advance.recipientType === "teacher" ? teacherLedger : salespersonLedger) as typeof teacherLedger;
-
-    // 刪除獨立沖銷分錄（情境 B 產生的）
-    const settlementRows = await db
-      .select()
-      .from(ledgerTable)
-      .where(and(eq(ledgerTable.advancePaymentId, advance.id), eq(ledgerTable.sourceType, "advance_settlement")));
-    for (const row of settlementRows) {
-      await db.delete(ledgerTable).where(eq(ledgerTable.id, row.id));
+    if (advance.recipientType !== "shipper") {
+      const ledgerTable = ledgerTableOf(advance.recipientType);
+      // 刪除獨立沖銷分錄（情境 B 產生的）
+      const settlementRows = await db
+        .select()
+        .from(ledgerTable)
+        .where(and(eq(ledgerTable.advancePaymentId, advance.id), eq(ledgerTable.sourceType, "advance_settlement")));
+      for (const row of settlementRows) {
+        await db.delete(ledgerTable).where(eq(ledgerTable.id, row.id));
+      }
     }
 
     await db
@@ -155,26 +352,33 @@ export const advancePaymentsRouter = router({
       .set({ status: "unsettled", settledByMainLedgerId: null, settledAt: null, updatedAt: Date.now() })
       .where(eq(advancePayments.id, input.id));
 
-    await recalculateBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
+    if (advance.recipientType !== "shipper") {
+      await recalculateBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
+    }
     await writeAudit(db, ctx.user.id, "unsettle", "advancePayment", input.id, advance, { status: "unsettled" });
 
     const [updated] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
     return updated;
   }),
 
-  delete: staffProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+  delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
     const db = ctx.db;
     const [advance] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
     if (!advance) throw new TRPCError({ code: "NOT_FOUND", message: "代墊記錄不存在" });
     if (advance.status === "settled") {
       throw new TRPCError({ code: "BAD_REQUEST", message: "已核銷的代墊需先取消核銷才能刪除" });
     }
+    assertCanEdit(ctx.user, advance);
 
-    const ledgerTable = (advance.recipientType === "teacher" ? teacherLedger : salespersonLedger) as typeof teacherLedger;
-    await db.delete(ledgerTable).where(eq(ledgerTable.advancePaymentId, advance.id));
+    if (advance.recipientType !== "shipper") {
+      const ledgerTable = ledgerTableOf(advance.recipientType);
+      await db.delete(ledgerTable).where(eq(ledgerTable.advancePaymentId, advance.id));
+    }
     await db.delete(advancePayments).where(eq(advancePayments.id, input.id));
 
-    await recalculateBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
+    if (advance.recipientType !== "shipper") {
+      await recalculateBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
+    }
     await writeAudit(db, ctx.user.id, "delete", "advancePayment", input.id, advance, null);
   }),
 });

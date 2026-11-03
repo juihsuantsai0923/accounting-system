@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./lib/auth";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
@@ -14,8 +14,11 @@ import { SalespeopleDirectoryPage } from "./pages/PeopleDirectoryPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
   if (isLoading) return <div className="p-8 text-center text-slate-400">載入中...</div>;
   if (!user) return <Navigate to="/login" replace />;
+  // 出貨員只能用代墊頁
+  if (user.role === "shipper_self" && location.pathname !== "/advance") return <Navigate to="/advance" replace />;
   return <>{children}</>;
 }
 

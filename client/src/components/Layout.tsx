@@ -145,6 +145,7 @@ export default function Layout() {
 
   const isTeacherSelf = user?.role === "teacher_self";
   const isSalespersonSelf = user?.role === "salesperson_self";
+  const isShipper = user?.role === "shipper_self";
 
   const handleLogout = () => {
     logout();
@@ -156,7 +157,12 @@ export default function Layout() {
   // 本人帳號（老師／推銷者）只看自己的：儀表板、我的帳本、代墊管理
   const selfBase =
     isTeacherSelf && user?.linkedTeacherId ? `/teacher/${user.linkedTeacherId}` : isSalespersonSelf && user?.linkedSalespersonId ? `/salesperson/${user.linkedSalespersonId}` : null;
-  const navLinks = (mobile: boolean) => (
+  const navLinks = (mobile: boolean) =>
+    isShipper ? (
+      <TabLink to="/advance" onClick={closeMenu}>
+        我的代墊
+      </TabLink>
+    ) : (
     <>
       {selfBase ? (
         <>
@@ -204,7 +210,7 @@ export default function Layout() {
         </TabLink>
       )}
     </>
-  );
+    );
 
   return (
     <div className="min-h-screen">

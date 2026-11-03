@@ -405,6 +405,8 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
           recipientType: advanceRecipientType,
           recipientId: Number(advanceRecipientId),
           itemName,
+          orderName: itemName,
+          category: itemName.includes("運費") ? "運費" : "其他",
           amount,
           note: note.memo?.trim() || undefined,
         });

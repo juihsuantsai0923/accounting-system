@@ -13,6 +13,7 @@ export const createTableStatements: string[] = [
     role TEXT NOT NULL DEFAULT 'finance_staff',
     linked_teacher_id INTEGER,
     linked_salesperson_id INTEGER,
+    linked_shipper_id INTEGER,
     is_active INTEGER NOT NULL DEFAULT 1,
     last_signed_in INTEGER,
     created_at INTEGER NOT NULL,
@@ -41,6 +42,24 @@ export const createTableStatements: string[] = [
     updated_at INTEGER NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS salespeople_name_idx ON salespeople(name)`,
+
+  `CREATE TABLE IF NOT EXISTS shippers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    note TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS shippers_name_idx ON shippers(name)`,
+
+  `CREATE TABLE IF NOT EXISTS advance_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS advance_categories_name_idx ON advance_categories(name)`,
+  `INSERT OR IGNORE INTO advance_categories (name, created_at) VALUES ('運費', 0), ('其他', 0)`,
 
   `CREATE TABLE IF NOT EXISTS courses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,6 +154,10 @@ export const createTableStatements: string[] = [
     recipient_type TEXT NOT NULL,
     recipient_id INTEGER NOT NULL,
     item_name TEXT NOT NULL,
+    order_name TEXT,
+    order_no TEXT,
+    buyer TEXT,
+    category TEXT,
     amount INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'unsettled',
     settled_by_main_ledger_id INTEGER,
@@ -254,6 +277,17 @@ export const mainLedgerColumnMigrations: { column: string; statement: string }[]
   { column: "income_source", statement: `ALTER TABLE main_ledger ADD COLUMN income_source TEXT` },
   { column: "breakdown", statement: `ALTER TABLE main_ledger ADD COLUMN breakdown TEXT` },
   { column: "edited_at", statement: `ALTER TABLE main_ledger ADD COLUMN edited_at INTEGER` },
+];
+
+export const userColumnMigrations: { column: string; statement: string }[] = [
+  { column: "linked_shipper_id", statement: `ALTER TABLE users ADD COLUMN linked_shipper_id INTEGER` },
+];
+
+export const advanceColumnMigrations: { column: string; statement: string }[] = [
+  { column: "order_name", statement: `ALTER TABLE advance_payments ADD COLUMN order_name TEXT` },
+  { column: "order_no", statement: `ALTER TABLE advance_payments ADD COLUMN order_no TEXT` },
+  { column: "buyer", statement: `ALTER TABLE advance_payments ADD COLUMN buyer TEXT` },
+  { column: "category", statement: `ALTER TABLE advance_payments ADD COLUMN category TEXT` },
 ];
 
 export const revenueSettingsColumnMigrations: { column: string; statement: string }[] = [

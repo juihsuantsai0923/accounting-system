@@ -6,10 +6,26 @@ const t = initTRPC.context<Context>().create();
 export const router = t.router;
 export const publicProcedure = t.procedure;
 
+/** 出貨員只能登記、查看自己的代墊，其他 API 一律擋掉（白名單） */
+const SHIPPER_PATHS = new Set([
+  "auth.logout",
+  "advancePayments.list",
+  "advancePayments.create",
+  "advancePayments.update",
+  "advancePayments.delete",
+  "advancePayments.categories",
+  "advancePayments.addCategory",
+  "advancePayments.orderOptions",
+  "reports.exportAdvancePaymentsCsv",
+]);
+
 /** 需要登入 */
-export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
+export const protectedProcedure = t.procedure.use(({ ctx, path, next }) => {
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Please login (10001)" });
+  }
+  if (ctx.user.role === "shipper_self" && !SHIPPER_PATHS.has(path)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "出貨員只能使用代墊功能" });
   }
   return next({ ctx: { ...ctx, user: ctx.user } });
 });

@@ -7,7 +7,7 @@ import { hashPassword } from "../auth";
 import { writeAudit } from "../ledger";
 import { toHalfWidth } from "../textNormalize";
 
-const roleSchema = z.enum(["super_admin", "finance_staff", "teacher_self", "salesperson_self"]);
+const roleSchema = z.enum(["super_admin", "finance_staff", "teacher_self", "salesperson_self", "shipper_self"]);
 
 // 先把全形字元轉半形再驗證格式，避免中文輸入法全形模式打出來的 email（例如 "＠" 而不是 "@"）
 // 被 .email() 擋下來卻只顯示看不懂的 "Invalid email"。
@@ -29,6 +29,7 @@ export const usersRouter = router({
         role: roleSchema,
         linkedTeacherId: z.number().nullable().optional(),
         linkedSalespersonId: z.number().nullable().optional(),
+        linkedShipperId: z.number().nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -44,6 +45,7 @@ export const usersRouter = router({
           role: input.role,
           linkedTeacherId: input.linkedTeacherId ?? null,
           linkedSalespersonId: input.linkedSalespersonId ?? null,
+          linkedShipperId: input.linkedShipperId ?? null,
         })
         .returning();
       await writeAudit(db, ctx.user.id, "create", "user", created.id, null, { ...created, passwordHash: undefined });
@@ -58,6 +60,7 @@ export const usersRouter = router({
         role: roleSchema,
         linkedTeacherId: z.number().nullable().optional(),
         linkedSalespersonId: z.number().nullable().optional(),
+        linkedShipperId: z.number().nullable().optional(),
         isActive: z.boolean().optional(),
       })
     )

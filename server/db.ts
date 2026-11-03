@@ -3,7 +3,14 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import fs from "fs";
 import path from "path";
 import * as schema from "./schema";
-import { createTableStatements, courseColumnMigrations, revenueSettingsColumnMigrations, mainLedgerColumnMigrations } from "./schema-sql";
+import {
+  createTableStatements,
+  courseColumnMigrations,
+  revenueSettingsColumnMigrations,
+  mainLedgerColumnMigrations,
+  userColumnMigrations,
+  advanceColumnMigrations,
+} from "./schema-sql";
 import { SEED_BOOKS, SEED_COUPONS } from "./catalogSeed";
 
 // 資料庫檔案位置可用環境變數 DATA_DIR 覆寫（例如部署平台掛載的持久化磁碟路徑）
@@ -32,6 +39,8 @@ function applyColumnMigrations(table: string, migrations: { column: string; stat
 applyColumnMigrations("courses", courseColumnMigrations);
 applyColumnMigrations("revenue_settings", revenueSettingsColumnMigrations);
 applyColumnMigrations("main_ledger", mainLedgerColumnMigrations);
+applyColumnMigrations("users", userColumnMigrations);
+applyColumnMigrations("advance_payments", advanceColumnMigrations);
 
 // 書籍與優惠碼初始資料（已存在同名／同代碼就略過，不會覆蓋管理面板改過的價格）
 {

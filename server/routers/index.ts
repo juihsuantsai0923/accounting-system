@@ -2,6 +2,7 @@ import { router } from "../trpc";
 import { authRouter } from "./auth";
 import { teachersRouter } from "./teachers";
 import { salespeopleRouter } from "./salespeople";
+import { shippersRouter } from "./shippers";
 import { coursesRouter } from "./courses";
 import { expenseTypesRouter } from "./expenseTypes";
 import { incomeTypesRouter } from "./incomeTypes";
@@ -22,6 +23,7 @@ export const appRouter = router({
   auth: authRouter,
   teachers: teachersRouter,
   salespeople: salespeopleRouter,
+  shippers: shippersRouter,
   courses: coursesRouter,
   expenseTypes: expenseTypesRouter,
   incomeTypes: incomeTypesRouter,

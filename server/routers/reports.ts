@@ -4,6 +4,7 @@ import { router, protectedProcedure } from "../trpc";
 import {
   teachers,
   salespeople,
+  shippers,
   teacherLedger,
   salespersonLedger,
   advancePayments,
@@ -372,7 +373,7 @@ export const reportsRouter = router({
   exportAdvancePaymentsCsv: protectedProcedure
     .input(z.object({ status: z.enum(["unsettled", "settled"]).optional() }).optional())
     .query(async ({ ctx, input }) => {
-      let recipientType: "teacher" | "salesperson" | undefined;
+      let recipientType: "teacher" | "salesperson" | "shipper" | undefined;
       let recipientId: number | undefined;
       if (ctx.user.role === "teacher_self") {
         recipientType = "teacher";
@@ -380,6 +381,9 @@ export const reportsRouter = router({
       } else if (ctx.user.role === "salesperson_self") {
         recipientType = "salesperson";
         recipientId = ctx.user.linkedSalespersonId ?? -1;
+      } else if (ctx.user.role === "shipper_self") {
+        recipientType = "shipper";
+        recipientId = ctx.user.linkedShipperId ?? -1;
       }
 
       const conditions = [] as any[];
@@ -391,19 +395,24 @@ export const reportsRouter = router({
         ? await ctx.db.select().from(advancePayments).where(and(...conditions)).orderBy(desc(advancePayments.id))
         : await ctx.db.select().from(advancePayments).orderBy(desc(advancePayments.id));
 
-      const teacherList = await ctx.db.select().from(teachers);
-      const salespersonList = await ctx.db.select().from(salespeople);
-      const nameOf = (type: string, id: number) =>
-        (type === "teacher" ? teacherList : salespersonList).find((p: any) => p.id === id)?.name ?? `#${id}`;
+      const lists: Record<string, any[]> = {
+        teacher: await ctx.db.select().from(teachers),
+        salesperson: await ctx.db.select().from(salespeople),
+        shipper: await ctx.db.select().from(shippers),
+      };
+      const nameOf = (type: string, id: number) => (lists[type] ?? []).find((p: any) => p.id === id)?.name ?? `#${id}`;
+      const typeLabel: Record<string, string> = { teacher: "教師", salesperson: "推銷者", shipper: "出貨員" };
 
       const csv = toCsv(
-        ["編號", "建立日期", "身份", "對象", "項目", "金額", "狀態", "核銷來源", "備註"],
+        ["編號", "建立日期", "身份", "對象", "訂單名稱", "下訂人", "類別", "金額", "狀態", "核銷來源", "備註"],
         rows.map((a: any) => [
           a.id,
           formatDate(a.createdAt),
-          a.recipientType === "teacher" ? "教師" : "推銷者",
+          typeLabel[a.recipientType] ?? a.recipientType,
           nameOf(a.recipientType, a.recipientId),
-          a.itemName,
+          a.orderName ?? a.itemName,
+          a.buyer ?? "",
+          a.category ?? "",
           a.amount,
           a.status === "unsettled" ? "未核銷" : "已核銷",
           a.settledByMainLedgerId ? `母記帳表 #${a.settledByMainLedgerId}` : a.status === "settled" ? "獨立沖銷" : "-",

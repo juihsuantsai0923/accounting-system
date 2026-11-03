@@ -5,7 +5,7 @@ import SearchableSelect from "../components/SearchableSelect";
 import { toHalfWidth } from "../lib/textNormalize";
 import RecurringAdmin from "../components/RecurringAdmin";
 
-type Tab = "teachers" | "salespeople" | "expenseTypes" | "incomeTypes" | "users" | "revenue" | "recurring" | "line";
+type Tab = "teachers" | "salespeople" | "shippers" | "expenseTypes" | "incomeTypes" | "users" | "revenue" | "recurring" | "line";
 
 const BOOK_KIND_LABELS: Record<string, string> = { book: "講義", workbook: "刷題本", bundle: "組合包", notebook: "筆記本" };
 
@@ -126,6 +126,98 @@ function SalespeopleAdmin() {
   );
 }
 
+function ShippersAdmin() {
+  const utils = trpc.useUtils();
+  const listQuery = trpc.shippers.list.useQuery();
+  const categoriesQuery = trpc.advancePayments.categories.useQuery();
+  const createMutation = trpc.shippers.create.useMutation({ onSuccess: () => utils.shippers.list.invalidate() });
+  const updateMutation = trpc.shippers.update.useMutation({ onSuccess: () => utils.shippers.list.invalidate() });
+  const deleteMutation = trpc.shippers.delete.useMutation({ onSuccess: () => utils.shippers.list.invalidate() });
+  const addCategory = trpc.advancePayments.addCategory.useMutation({ onSuccess: () => utils.advancePayments.categories.invalidate() });
+  const deleteCategory = trpc.advancePayments.deleteCategory.useMutation({ onSuccess: () => utils.advancePayments.categories.invalidate() });
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <>
+      <Section title="出貨員管理">
+        <p className="text-xs text-slate-500">
+          出貨員登入後只看得到「我的代墊」：可以新增自己的代墊（運費等），修改、刪除自己還沒核銷的，看不到帳本和其他人的資料。新增出貨員後，到「帳號與權限」新增他的 Gmail、角色選「出貨員」並綁定。
+        </p>
+        <form
+          className="flex flex-wrap gap-2"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setError(null);
+            if (!name.trim()) return;
+            try {
+              await createMutation.mutateAsync({ name });
+              setName("");
+            } catch (err: any) {
+              setError(err?.message ?? "新增失敗");
+            }
+          }}
+        >
+          <input className="input" placeholder="出貨員姓名" value={name} onChange={(e) => setName(e.target.value)} />
+          <button className="btn-primary" type="submit" disabled={createMutation.isPending}>
+            {createMutation.isPending ? "新增中..." : "新增"}
+          </button>
+        </form>
+        {(error || deleteMutation.error) && (
+          <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error ?? deleteMutation.error?.message}</div>
+        )}
+        <ul className="divide-y divide-slate-100">
+          {(listQuery.data ?? []).map((s) => (
+            <li key={s.id} className="flex items-center justify-between gap-2 py-2 text-sm">
+              <span className={s.isActive ? "" : "text-slate-400"}>
+                {s.name}
+                {!s.isActive && "（停用）"}
+              </span>
+              <span className="flex gap-2">
+                <button className="btn-secondary" onClick={() => updateMutation.mutate({ id: s.id, isActive: !s.isActive })}>
+                  {s.isActive ? "停用" : "啟用"}
+                </button>
+                <button className="btn-danger" onClick={() => confirm(`確定刪除出貨員「${s.name}」？`) && deleteMutation.mutate({ id: s.id })}>
+                  刪除
+                </button>
+              </span>
+            </li>
+          ))}
+          {listQuery.data?.length === 0 && <li className="text-sm text-slate-400 py-2">還沒有出貨員</li>}
+        </ul>
+      </Section>
+      <Section title="代墊類別">
+        <p className="text-xs text-slate-500">填代墊時選的類別。出貨員填代墊時也可以直接打新類別；出貨員的代墊核銷時，會照類別記成帳本的支出（「其他」記成「其他支出」）。</p>
+        <form
+          className="flex flex-wrap gap-2"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!category.trim()) return;
+            await addCategory.mutateAsync({ name: category });
+            setCategory("");
+          }}
+        >
+          <input className="input" placeholder="類別名稱" value={category} onChange={(e) => setCategory(e.target.value)} />
+          <button className="btn-primary" type="submit">
+            新增
+          </button>
+        </form>
+        <ul className="divide-y divide-slate-100">
+          {(categoriesQuery.data ?? []).map((c) => (
+            <li key={c.id} className="flex items-center justify-between py-2 text-sm">
+              <span>{c.name}</span>
+              <button className="btn-danger" onClick={() => confirm(`確定刪除類別「${c.name}」？（已經填過的代墊不受影響）`) && deleteCategory.mutate({ id: c.id })}>
+                刪除
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Section>
+    </>
+  );
+}
+
 function ExpenseTypesAdmin() {
   const utils = trpc.useUtils();
   const listQuery = trpc.expenseTypes.list.useQuery();
@@ -220,11 +312,12 @@ function UsersAdmin() {
   const listQuery = trpc.users.list.useQuery(undefined, { enabled: user?.role === "super_admin" });
   const teachersQuery = trpc.teachers.list.useQuery();
   const salespeopleQuery = trpc.salespeople.list.useQuery();
+  const shippersQuery = trpc.shippers.list.useQuery();
   const createMutation = trpc.users.create.useMutation({ onSuccess: () => utils.users.list.invalidate() });
   const updateMutation = trpc.users.updateRole.useMutation({ onSuccess: () => utils.users.list.invalidate() });
   const deleteMutation = trpc.users.delete.useMutation({ onSuccess: () => utils.users.list.invalidate() });
 
-  const [form, setForm] = useState({ email: "", name: "", role: "finance_staff" as string, linkedTeacherId: "", linkedSalespersonId: "" });
+  const [form, setForm] = useState({ email: "", name: "", role: "finance_staff" as string, linkedTeacherId: "", linkedSalespersonId: "", linkedShipperId: "" });
   const [error, setError] = useState<string | null>(null);
 
   if (user?.role !== "super_admin") {
@@ -249,8 +342,9 @@ function UsersAdmin() {
               role: form.role as any,
               linkedTeacherId: form.linkedTeacherId ? Number(form.linkedTeacherId) : null,
               linkedSalespersonId: form.linkedSalespersonId ? Number(form.linkedSalespersonId) : null,
+              linkedShipperId: form.linkedShipperId ? Number(form.linkedShipperId) : null,
             });
-            setForm({ email: "", name: "", role: "finance_staff", linkedTeacherId: "", linkedSalespersonId: "" });
+            setForm({ email: "", name: "", role: "finance_staff", linkedTeacherId: "", linkedSalespersonId: "", linkedShipperId: "" });
           } catch (err: any) {
             setError(err?.message ?? "新增失敗");
           }
@@ -286,6 +380,16 @@ function UsersAdmin() {
           <select className="input" value={form.linkedSalespersonId} onChange={(e) => setForm({ ...form, linkedSalespersonId: e.target.value })}>
             <option value="">綁定推銷者</option>
             {salespeopleQuery.data?.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        )}
+        {form.role === "shipper_self" && (
+          <select className="input" value={form.linkedShipperId} onChange={(e) => setForm({ ...form, linkedShipperId: e.target.value })} required>
+            <option value="">綁定出貨員</option>
+            {shippersQuery.data?.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
@@ -330,6 +434,20 @@ function UsersAdmin() {
                     </option>
                   ))}
                 </select>
+                {u.role === "shipper_self" && (
+                  <select
+                    className="input !w-40 mt-1"
+                    value={u.linkedShipperId ?? ""}
+                    onChange={(e) => updateMutation.mutate({ id: u.id, role: "shipper_self", linkedShipperId: e.target.value ? Number(e.target.value) : null })}
+                  >
+                    <option value="">綁定出貨員</option>
+                    {shippersQuery.data?.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </td>
               <td>{u.isActive ? "啟用" : "停用"}</td>
               <td>
@@ -503,6 +621,7 @@ export default function AdminPage() {
   const tabs: { key: Tab; label: string }[] = [
     { key: "teachers", label: "教師管理" },
     { key: "salespeople", label: "推銷者管理" },
+    { key: "shippers", label: "出貨員與代墊類別" },
     { key: "expenseTypes", label: "支出類型管理" },
     { key: "incomeTypes", label: "收入類型管理" },
     { key: "revenue", label: "分潤設定" },
@@ -528,6 +647,7 @@ export default function AdminPage() {
       </div>
       {tab === "teachers" && <TeachersAdmin />}
       {tab === "salespeople" && <SalespeopleAdmin />}
+      {tab === "shippers" && <ShippersAdmin />}
       {tab === "expenseTypes" && <ExpenseTypesAdmin />}
       {tab === "incomeTypes" && <IncomeTypesAdmin />}
       {tab === "revenue" && <RevenueSettingsAdmin />}
