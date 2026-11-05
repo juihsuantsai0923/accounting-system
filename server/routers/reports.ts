@@ -13,7 +13,7 @@ import {
   users,
 } from "../schema";
 import { eq, and, asc, desc, isNull } from "drizzle-orm";
-import { ledgerDelta } from "../ledger";
+import { ledgerDelta, reserveTrail } from "../ledger";
 import { toCsv, formatDate } from "../csv";
 import { checkIntegrity } from "../integrity";
 
@@ -295,8 +295,9 @@ export const reportsRouter = router({
         (r: any) => (!input?.dateFrom || r.createdAt >= input.dateFrom) && (!input?.dateTo || r.createdAt <= input.dateTo)
       );
 
+      const { after } = await reserveTrail(ctx.db);
       const csv = toCsv(
-        ["編號", "日期", "類型", "項目", "名稱", "金額", "餘額", "編輯者", "備註"],
+        ["編號", "日期", "類型", "項目", "名稱", "金額", "餘額", "剩餘公積金", "編輯者", "備註"],
         filtered.map((r: any) => [
           r.id,
           formatDate(r.createdAt),
@@ -305,6 +306,7 @@ export const reportsRouter = router({
           r.categoryName,
           r.amount,
           r.balance,
+          after.get(r.id) ?? 0,
           r.editorName ?? "-",
           r.note ?? "",
         ])

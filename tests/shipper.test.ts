@@ -115,3 +115,40 @@ test("管理員切成老師身分登記的代墊不用審核", async () => {
   assert.equal(a.reviewStatus, "approved");
   assert.equal(await admin.advancePayments.pendingReviewCount(), 0);
 });
+
+test("剩餘公積金：每筆記完後的數字，代墊算欠款，現在的數字跟儀表板算法一致", async () => {
+  const { admin, shipper, sqlite } = setup();
+  const now = Date.now();
+  sqlite.prepare("INSERT INTO income_types (id, name, created_at, updated_at) VALUES (900, '測試收入', ?, ?)").run(now, now);
+  sqlite.prepare("INSERT INTO expense_types (id, name, created_at, updated_at) VALUES (900, '測試支出', ?, ?)").run(now, now);
+  sqlite.prepare("INSERT INTO teachers (id, name, created_at, updated_at) VALUES (900, '老師甲', ?, ?)").run(now, now);
+
+  await admin.mainLedger.create({
+    type: "income",
+    itemName: "收入一",
+    categoryId: 900,
+    amount: "1000",
+    distributions: [{ type: "teacher", recipientId: 900, amount: "600" }],
+  });
+  await admin.mainLedger.create({ type: "expense", itemName: "公帳", categoryId: 900, amount: "100" });
+  assert.deepEqual((await admin.mainLedger.list()).map((e) => e.reserveAfter), [400, 300]);
+  assert.equal(await admin.mainLedger.reserveNow(), 300);
+
+  // 待審核的代墊不算，通過後算欠款；帳本最後一筆之後才發生的只影響現在的數字
+  const a = await shipper.advancePayments.create({ buyer: "甲", category: "運費", amount: "50" });
+  assert.equal(await admin.mainLedger.reserveNow(), 300);
+  await admin.advancePayments.review({ id: a.id, approve: true });
+  assert.equal(await admin.mainLedger.reserveNow(), 250);
+  assert.deepEqual((await admin.mainLedger.list()).map((e) => e.reserveAfter), [400, 300]);
+
+  // 核銷：帳本多一筆支出、欠款同時還掉，公積金不變
+  await admin.advancePayments.settleShipper({ shipperId: 1 });
+  const rows = await admin.mainLedger.list();
+  assert.equal(rows[rows.length - 1].reserveAfter, 250);
+  assert.equal(await admin.mainLedger.reserveNow(), 250);
+
+  // 跟儀表板算法核對：餘額 − 子記帳表餘額
+  const overview = await admin.reports.balanceOverview();
+  const balance = rows[rows.length - 1].balance;
+  assert.equal(await admin.mainLedger.reserveNow(), balance - overview.reduce((t, r) => t + r.totalBalance, 0));
+});

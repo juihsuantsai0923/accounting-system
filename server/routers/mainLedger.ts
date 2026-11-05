@@ -12,7 +12,7 @@ import {
   users,
 } from "../schema";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
-import { recalculateBalance, recalculateMainLedgerBalance, writeAudit } from "../ledger";
+import { recalculateBalance, recalculateMainLedgerBalance, reserveTrail, writeAudit } from "../ledger";
 import { computeCourseIncome, computeTutoringIncome, computeBookIncome, splitBookIncome, CourseIncomeError, type DistItem } from "../revenueCalc";
 import { combineIncome, type IncomePart } from "../combineIncome";
 import { mergeNote } from "../noteFormat";
@@ -146,8 +146,12 @@ export const mainLedgerRouter = router({
       .from(ledgerDistribution)
       .groupBy(ledgerDistribution.mainLedgerId);
     const distributedById = new Map(sums.map((r) => [r.mainLedgerId, Number(r.total) || 0]));
-    return rows.map((r: any) => ({ ...r, distributed: distributedById.get(r.id) ?? 0 }));
+    const { after } = await reserveTrail(ctx.db);
+    return rows.map((r: any) => ({ ...r, distributed: distributedById.get(r.id) ?? 0, reserveAfter: after.get(r.id) ?? 0 }));
   }),
+
+  /** 現在的公積金（跟儀表板同一個數字），帳本表格上方顯示 */
+  reserveNow: staffProcedure.query(async ({ ctx }) => (await reserveTrail(ctx.db)).current),
 
   create: staffProcedure
     .input(

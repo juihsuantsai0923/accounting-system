@@ -103,6 +103,11 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
   const settingsQuery = trpc.revenueSettings.get.useQuery();
   // 應付總覽只給財務人員（教師本人沒有權限，也用不到：他看不到新增記錄的表單）
   const overviewQuery = trpc.reports.balanceOverview.useQuery(undefined, { enabled: canManage(user?.role) });
+  const reserveNowQuery = trpc.mainLedger.reserveNow.useQuery();
+  // 帳本有變動（包含編輯視窗、訂單記帳）就跟著更新目前公積金
+  useEffect(() => {
+    if (entriesQuery.dataUpdatedAt) reserveNowQuery.refetch();
+  }, [entriesQuery.dataUpdatedAt]);
 
   const invalidateAll = () => {
     utils.mainLedger.list.invalidate();
@@ -1242,6 +1247,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
           <span className="text-emerald-600">收入 {fmt(visibleTotals.income)}</span>
           <span className="text-red-600">支出 {fmt(visibleTotals.expense)}</span>
           <span>公積金增減 {signedFmt(visibleTotals.reserve)}</span>
+          {reserveNowQuery.data != null && <span className="font-medium">目前剩餘公積金 {fmt(reserveNowQuery.data)}</span>}
         </div>
         <div className="table-wrap">
         <table className="data-table">
@@ -1255,6 +1261,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
               <th>金額</th>
               <th title="收入：沒分給任何人、留在公司的部分；公帳支出：從公積金扣掉（負數）；薪水撥款不影響公積金">公積金增減</th>
               <th title="帳本的累計餘額，依記錄先後計算，不受排序和篩選影響">餘額</th>
+              <th title="記完這筆後公司自己的錢：帳上餘額扣掉當時欠所有人的錢（含代墊），跟儀表板公積金同一個算法，不受排序和篩選影響">剩餘公積金</th>
               <th>最後編輯</th>
               {canManage(user?.role) && <th>操作</th>}
             </tr>
@@ -1284,6 +1291,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                     {isSalaryEntry(entry) && delta === 0 ? "不影響" : signedFmt(delta)}
                   </td>
                   <td>{fmt(entry.balance)}</td>
+                  <td className={entry.reserveAfter < 0 ? "text-red-600" : undefined}>{fmt(entry.reserveAfter)}</td>
                   <td className="whitespace-nowrap text-xs text-slate-500">{fmtDateTime(entry.editedAt ?? entry.createdAt)}</td>
                   {canManage(user?.role) && (
                     <td className="whitespace-nowrap space-x-1">
@@ -1300,7 +1308,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
             })}
             {visibleEntries.length === 0 && (
               <tr>
-                <td colSpan={10} className="text-center text-slate-400 py-6">
+                <td colSpan={11} className="text-center text-slate-400 py-6">
                   {isFiltering ? "沒有符合篩選條件的記錄" : "尚無記錄"}
                 </td>
               </tr>
