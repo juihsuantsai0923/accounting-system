@@ -230,7 +230,7 @@ export const mainLedgerRouter = router({
           for (const advanceId of dist.settledAdvanceIds) {
             const [advance] = await db.select().from(advancePayments).where(eq(advancePayments.id, advanceId)).limit(1);
             if (!advance) continue;
-            if (advance.status !== "unsettled") continue;
+            if (advance.status !== "unsettled" || advance.reviewStatus !== "approved") continue;
             if (advance.recipientType !== dist.type || advance.recipientId !== dist.recipientId) {
               throw new TRPCError({ code: "BAD_REQUEST", message: `代墊記錄 #${advanceId} 不屬於此撥款對象` });
             }

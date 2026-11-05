@@ -8,7 +8,7 @@ import { lineConfigured, money, sendLine, type LineConfig } from "./lineNotify";
  *   1. 記定期收支
  *   2. 帳務自我檢查
  *   3. 官網訂單對帳（有對不上的、待付款超過 3 天的）
- *   4. 還沒處理的帳號申請
+ *   4. 還沒處理的帳號申請、還沒審核的代墊
  * 有事情才發 LINE；沒事不吵。
  */
 export async function dailyJob(db: any, cfg: LineConfig) {
@@ -28,6 +28,9 @@ export async function dailyJob(db: any, cfg: LineConfig) {
 
   const pendingRequests = await caller.accountRequests.pendingCount();
   if (pendingRequests) lines.push(`👤 有 ${pendingRequests} 個帳號申請還沒處理（管理面板 → 帳號申請）`);
+
+  const pendingAdvances = await caller.advancePayments.pendingReviewCount();
+  if (pendingAdvances) lines.push(`🧾 有 ${pendingAdvances} 筆代墊還沒審核（代墊管理）`);
 
   if (lines.length && lineConfigured(cfg)) await sendLine(cfg, ["澈點科學財務系統 每日提醒", "", ...lines].join("\n"));
   return lines;

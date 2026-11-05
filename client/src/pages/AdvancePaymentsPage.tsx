@@ -11,6 +11,11 @@ function fmt(n: number) {
 type RecipientType = "teacher" | "salesperson" | "shipper";
 const TYPE_LABELS: Record<string, string> = { teacher: "教師", salesperson: "推銷者", shipper: "出貨員" };
 const NEW_CATEGORY = "__new__";
+const REVIEW_LABELS: Record<string, { text: string; className: string }> = {
+  pending: { text: "待審核", className: "text-amber-600 font-medium" },
+  approved: { text: "已通過", className: "text-emerald-600" },
+  rejected: { text: "已退回", className: "text-red-600 font-medium" },
+};
 
 const emptyForm = { orderName: "", orderNo: "", buyer: "", category: "運費", newCategory: "", amount: "", note: "" };
 
@@ -23,7 +28,9 @@ export default function AdvancePaymentsPage() {
   const { user } = useAuth();
   const isAdmin = canManage(user?.role);
   const isShipper = user?.role === "shipper_self";
-  const canWrite = isAdmin || isShipper;
+  const isTeacher = user?.role === "teacher_self";
+  const isSelf = isShipper || isTeacher;
+  const canWrite = isAdmin || isSelf;
   const utils = trpc.useUtils();
   const [statusFilter, setStatusFilter] = useState<"" | "unsettled" | "settled">("");
   const advancesQuery = trpc.advancePayments.list.useQuery({ status: statusFilter || undefined });
@@ -49,6 +56,7 @@ export default function AdvancePaymentsPage() {
   const updateMutation = trpc.advancePayments.update.useMutation({ onSuccess: invalidateAll });
   const settleMutation = trpc.advancePayments.settle.useMutation({ onSuccess: invalidateAll });
   const settleShipperMutation = trpc.advancePayments.settleShipper.useMutation({ onSuccess: invalidateAll });
+  const reviewMutation = trpc.advancePayments.review.useMutation({ onSuccess: invalidateAll });
   const unsettleMutation = trpc.advancePayments.unsettle.useMutation({ onSuccess: invalidateAll });
   const deleteMutation = trpc.advancePayments.delete.useMutation({ onSuccess: invalidateAll });
 
@@ -70,9 +78,13 @@ export default function AdvancePaymentsPage() {
   const categories = categoriesQuery.data ?? [];
   const orders = ordersQuery.data ?? [];
 
-  // 出貨員未核銷代墊，依人加總（管理員看全部；出貨員只會拿到自己的）
+  const unsettled = unsettledQuery.data ?? [];
+  const approved = unsettled.filter((a) => a.reviewStatus === "approved");
+  const pending = unsettled.filter((a) => a.reviewStatus === "pending");
+
+  // 出貨員審核通過、未核銷的代墊，依人加總（管理員用，一次核銷）
   const shipperUnsettled = new Map<number, { total: number; count: number }>();
-  for (const a of unsettledQuery.data ?? []) {
+  for (const a of approved) {
     if (a.recipientType !== "shipper") continue;
     const s = shipperUnsettled.get(a.recipientId) ?? { total: 0, count: 0 };
     shipperUnsettled.set(a.recipientId, { total: s.total + a.amount, count: s.count + 1 });
@@ -142,7 +154,7 @@ export default function AdvancePaymentsPage() {
     try {
       if (editingId) {
         await updateMutation.mutateAsync({ id: editingId, ...fields });
-      } else if (isShipper) {
+      } else if (isSelf) {
         await createMutation.mutateAsync(fields);
       } else {
         if (!recipientId) return setError(`請選擇${TYPE_LABELS[recipientType]}`);
@@ -156,27 +168,66 @@ export default function AdvancePaymentsPage() {
   }
 
   const saving = createMutation.isPending || updateMutation.isPending;
-  const myUnsettled = isShipper ? [...shipperUnsettled.values()][0] : undefined;
-  const colCount = 8 + (isAdmin ? 1 : 0) + (canWrite ? 1 : 0);
+  const myOwed = approved.reduce((s, a) => s + a.amount, 0);
+  const colCount = 9 + (isAdmin ? 1 : 0) + (canWrite ? 1 : 0);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl text-brand-700">{isShipper ? "我的代墊" : "代墊款管理"}</h1>
-      {isShipper ? (
+      <h1 className="text-2xl text-brand-700">{isSelf ? "我的代墊" : "代墊款管理"}</h1>
+      {isSelf ? (
         <p className="text-sm text-slate-500">
-          幫公司先付的錢（例如寄書的運費）在這裡登記。公司還錢後會標成「已核銷」；還沒核銷的可以自己修改或刪除。
+          幫公司先付的錢（例如寄書的運費）在這裡登記，管理員審核通過後才算公司欠你的。公司還錢後會標成「已核銷」；還沒核銷的可以自己修改或刪除，修改後要重新審核。
         </p>
       ) : (
         <p className="text-sm text-slate-500">
-          有人先幫公司墊付費用時，在這裡建立代墊記錄。教師、推銷者的代墊會計入他的子記帳表餘額，公司歸還時在這裡「核銷」，或在帳本新增撥款時勾選一併核銷。出貨員的代墊按「核銷並記入帳本」，會照類別在帳本記一筆支出（例如運費）。
+          有人先幫公司墊付費用時，在這裡建立代墊記錄；老師、出貨員自己登記的要在這裡審核，通過才算數。教師、推銷者的代墊會計入他的子記帳表餘額，公司歸還時在這裡「核銷」，或在帳本新增撥款時勾選一併核銷。出貨員的代墊按「核銷並記入帳本」，會照類別在帳本記一筆支出（例如運費）。
         </p>
       )}
 
-      {isShipper && (
+      {isSelf && (
         <div className="card border-l-4 border-gold-500">
           <div className="text-sm text-slate-500">公司還沒還你的代墊</div>
-          <div className="text-3xl font-semibold mt-1 text-brand-700">{fmt(myUnsettled?.total ?? 0)}</div>
-          <div className="text-xs text-slate-400 mt-1">{myUnsettled?.count ?? 0} 筆未核銷</div>
+          <div className="text-3xl font-semibold mt-1 text-brand-700">{fmt(myOwed)}</div>
+          <div className="text-xs text-slate-400 mt-1">
+            {approved.length} 筆未核銷{pending.length > 0 && `，另有 ${pending.length} 筆審核中`}
+          </div>
+        </div>
+      )}
+
+      {isAdmin && pending.length > 0 && (
+        <div className="card space-y-3 border-l-4 border-amber-500">
+          <h2 className="font-medium text-brand-700">等你審核的代墊（{pending.length}）</h2>
+          <ul className="divide-y divide-slate-100">
+            {pending.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <span>
+                  <b>{nameOf(a.recipientType, a.recipientId)}</b>
+                  <span className="text-xs text-slate-400 ml-1">{TYPE_LABELS[a.recipientType]}</span>
+                  <span className="ml-2">
+                    {a.category} <b className="text-amber-600">{fmt(a.amount)}</b>
+                  </span>
+                  {a.orderName && <span className="ml-2 text-slate-500">{a.orderName}</span>}
+                  {a.buyer && <span className="ml-2 text-slate-500">下訂人：{a.buyer}</span>}
+                  {a.note && <span className="ml-2 text-slate-500">備註：{a.note}</span>}
+                </span>
+                <span className="space-x-2 whitespace-nowrap">
+                  <button className="btn-primary" disabled={reviewMutation.isPending} onClick={() => run(() => reviewMutation.mutateAsync({ id: a.id, approve: true }))}>
+                    通過
+                  </button>
+                  <button
+                    className="btn-danger"
+                    disabled={reviewMutation.isPending}
+                    onClick={() => {
+                      const note = prompt("退回原因（對方看得到，可以不填）");
+                      if (note !== null) run(() => reviewMutation.mutateAsync({ id: a.id, approve: false, note: note || undefined }));
+                    }}
+                  >
+                    退回
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -239,7 +290,7 @@ export default function AdvancePaymentsPage() {
               </>
             )}
             <div className="md:col-span-2">
-              <label className="label">訂單名稱（可選官網訂單或自己打）</label>
+              <label className="label">{orders.length ? "訂單名稱（可選官網訂單或自己打）" : "訂單名稱"}</label>
               <input
                 className="input"
                 list="advance-order-options"
@@ -333,6 +384,7 @@ export default function AdvancePaymentsPage() {
                 <th>類別</th>
                 <th>金額</th>
                 <th>備註</th>
+                <th>審核</th>
                 <th>狀態</th>
                 <th>核銷來源</th>
                 {canWrite && <th>操作</th>}
@@ -340,7 +392,8 @@ export default function AdvancePaymentsPage() {
             </thead>
             <tbody>
               {(advancesQuery.data ?? []).map((a) => {
-                const mine = isShipper && a.recipientType === "shipper" && a.recipientId === user?.linkedShipperId;
+                const mine = isSelf; // 老師、出貨員的清單後端只會給自己的
+                const review = REVIEW_LABELS[a.reviewStatus] ?? REVIEW_LABELS.approved;
                 return (
                   <tr key={a.id}>
                     <td>{new Date(a.createdAt).toLocaleDateString()}</td>
@@ -356,6 +409,10 @@ export default function AdvancePaymentsPage() {
                     <td className="tabular-nums">{fmt(a.amount)}</td>
                     <td className="text-xs text-slate-500">{a.note || ""}</td>
                     <td>
+                      <span className={review.className}>{review.text}</span>
+                      {a.reviewNote && <div className="text-xs text-slate-500">{a.reviewNote}</div>}
+                    </td>
+                    <td>
                       <span className={a.status === "unsettled" ? "text-amber-600 font-medium" : "text-emerald-600"}>
                         {a.status === "unsettled" ? "未核銷" : "已核銷"}
                       </span>
@@ -368,7 +425,7 @@ export default function AdvancePaymentsPage() {
                             <button className="btn-secondary" onClick={() => startEdit(a)}>
                               修改
                             </button>
-                            {isAdmin && (
+                            {isAdmin && a.reviewStatus === "approved" && (
                               <button
                                 className="btn-secondary"
                                 onClick={() => run(() => settleMutation.mutateAsync({ id: a.id, mainLedgerId: null }))}

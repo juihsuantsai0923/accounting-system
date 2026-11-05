@@ -246,6 +246,8 @@ export const advancePayments = sqliteTable("advance_payments", {
   category: text("category"), // 運費、其他…（advance_categories）
   amount: integer("amount").notNull(),
   status: text("status").notNull().default("unsettled"), // unsettled | settled
+  reviewStatus: text("review_status").notNull().default("approved"), // pending | approved | rejected（老師、出貨員自己登記的要管理員審核）
+  reviewNote: text("review_note"), // 退回原因
   settledByMainLedgerId: integer("settled_by_main_ledger_id"),
   settledAt: integer("settled_at"),
   attachmentUrl: text("attachment_url"),

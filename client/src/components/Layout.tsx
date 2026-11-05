@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, ROLE_LABELS, canManage } from "../lib/auth";
 import LeviaxLogo from "./LeviaxLogo";
 import { trpc, getActAs, setActAs } from "../lib/trpc";
@@ -138,10 +138,28 @@ function BackgroundWaves() {
   );
 }
 
+/** 右下角提醒：有代墊等管理員審核時跳出來；關掉後有新的一筆才會再跳 */
+function PendingReviewToast({ count }: { count: number }) {
+  const { pathname } = useLocation();
+  const [dismissed, setDismissed] = useState(0);
+  if (count <= dismissed || pathname === "/advance") return null;
+  return (
+    <div className="no-print fixed bottom-4 right-4 z-30 max-w-[calc(100vw-2rem)] card !py-3 border-l-4 border-amber-500 shadow-card-hover flex items-center gap-3">
+      <Link to="/advance" className="text-sm text-amber-700 hover:underline">
+        🔔 有 {count} 筆代墊等你審核 →
+      </Link>
+      <button type="button" aria-label="關閉提醒" className="text-slate-400 hover:text-slate-600" onClick={() => setDismissed(count)}>
+        ✕
+      </button>
+    </div>
+  );
+}
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const pendingReview = trpc.advancePayments.pendingReviewCount.useQuery(undefined, { enabled: canManage(user?.role), refetchInterval: 60_000 }).data ?? 0;
 
   const isTeacherSelf = user?.role === "teacher_self";
   const isSalespersonSelf = user?.role === "salesperson_self";
@@ -202,7 +220,7 @@ export default function Layout() {
       )}
       {!isTeacherSelf && !isSalespersonSelf && <PeopleMenu mobile={mobile} onNavigate={closeMenu} />}
       <TabLink to="/advance" onClick={closeMenu}>
-        代墊管理
+        {pendingReview ? `代墊管理（${pendingReview}）` : "代墊管理"}
       </TabLink>
       {canManage(user?.role) && (
         <TabLink to="/admin" onClick={closeMenu}>
@@ -274,6 +292,7 @@ export default function Layout() {
       <main className="max-w-7xl mx-auto px-3 sm:px-4 py-6">
         <Outlet />
       </main>
+      <PendingReviewToast count={pendingReview} />
     </div>
   );
 }

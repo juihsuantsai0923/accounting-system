@@ -47,6 +47,9 @@ test("出貨員代墊核銷：依類別記帳本支出、刪掉支出代墊退�
   await shipper.advancePayments.create({ buyer: "乙", category: "運費", amount: "65" });
   await shipper.advancePayments.create({ buyer: "丙", category: "其他", amount: "20" });
 
+  await assert.rejects(admin.advancePayments.settle({ id: a1.id }), /還沒審核通過/);
+  for (const a of await admin.advancePayments.list({})) await admin.advancePayments.review({ id: a.id, approve: true });
+
   const r = await admin.advancePayments.settleShipper({ shipperId: 1 });
   assert.deepEqual([r.count, r.total, r.entries], [3, 145, 2]);
   const ledger = await admin.mainLedger.list();
@@ -72,4 +75,43 @@ test("教師代墊照舊進子記帳表，修改金額會重算餘額", async ()
   assert.equal(row.personalAmount, 90);
   assert.equal(row.personalBalance, 90);
   assert.equal(row.itemName, "丁_運費");
+});
+
+test("老師自己登記代墊：審核通過才進子記帳表、修改要重審、退回可看到原因、看不到別人的", async () => {
+  const { admin, db, sqlite } = setup();
+  sqlite.prepare("INSERT OR IGNORE INTO teachers (id, name, created_at, updated_at) VALUES (7, '王老師', 0, 0), (8, '李老師', 0, 0)").run();
+  const teacher = appRouter.createCaller({ db, user: { id: 20, name: "王老師", role: "teacher_self", linkedTeacherId: 7 } } as any);
+  const other = appRouter.createCaller({ db, user: { id: 21, role: "teacher_self", linkedTeacherId: 8 } } as any);
+  const rows = async () => ((await admin.teacherLedger.list({ teacherId: 7 } as any)) as any[]).filter((x) => x.sourceType === "advance");
+
+  const a = await teacher.advancePayments.create({ recipientType: "teacher", recipientId: 8, buyer: "戊", category: "運費", amount: "60" });
+  assert.deepEqual([a.recipientId, a.reviewStatus], [7, "pending"]);
+  assert.equal(await admin.advancePayments.pendingReviewCount(), 1);
+  assert.equal((await rows()).length, 0);
+  assert.equal((await other.advancePayments.list({})).length, 0);
+  await assert.rejects(other.advancePayments.delete({ id: a.id }), /只能修改自己的代墊/);
+  await assert.rejects(teacher.advancePayments.review({ id: a.id, approve: true }), /只有系統管理員/);
+
+  await admin.advancePayments.review({ id: a.id, approve: true });
+  assert.equal(await admin.advancePayments.pendingReviewCount(), 0);
+  assert.equal((await rows())[0].personalBalance, 60);
+  await assert.rejects(admin.advancePayments.review({ id: a.id, approve: true }), /已經審核過/);
+
+  await teacher.advancePayments.update({ id: a.id, buyer: "戊", category: "運費", amount: "90" });
+  assert.equal(await admin.advancePayments.pendingReviewCount(), 1);
+  assert.equal((await rows()).length, 0);
+
+  await admin.advancePayments.review({ id: a.id, approve: false, note: "金額不對" });
+  const [rejected] = await teacher.advancePayments.list({});
+  assert.deepEqual([rejected.reviewStatus, rejected.reviewNote], ["rejected", "金額不對"]);
+  await assert.rejects(admin.advancePayments.settle({ id: a.id }), /還沒審核通過/);
+});
+
+test("管理員切成老師身分登記的代墊不用審核", async () => {
+  const { admin, db, sqlite } = setup();
+  sqlite.prepare("INSERT OR IGNORE INTO teachers (id, name, created_at, updated_at) VALUES (7, '王老師', 0, 0)").run();
+  const acting = appRouter.createCaller({ db, user: { id: 3, role: "teacher_self", realRole: "super_admin", linkedTeacherId: 7 } } as any);
+  const a = await acting.advancePayments.create({ buyer: "己", category: "運費", amount: "60" });
+  assert.equal(a.reviewStatus, "approved");
+  assert.equal(await admin.advancePayments.pendingReviewCount(), 0);
 });

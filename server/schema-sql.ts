@@ -174,6 +174,8 @@ export const createTableStatements: string[] = [
     category TEXT,
     amount INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'unsettled',
+    review_status TEXT NOT NULL DEFAULT 'approved',
+    review_note TEXT,
     settled_by_main_ledger_id INTEGER,
     settled_at INTEGER,
     attachment_url TEXT,
@@ -302,6 +304,8 @@ export const advanceColumnMigrations: { column: string; statement: string }[] = 
   { column: "order_no", statement: `ALTER TABLE advance_payments ADD COLUMN order_no TEXT` },
   { column: "buyer", statement: `ALTER TABLE advance_payments ADD COLUMN buyer TEXT` },
   { column: "category", statement: `ALTER TABLE advance_payments ADD COLUMN category TEXT` },
+  { column: "review_status", statement: `ALTER TABLE advance_payments ADD COLUMN review_status TEXT NOT NULL DEFAULT 'approved'` },
+  { column: "review_note", statement: `ALTER TABLE advance_payments ADD COLUMN review_note TEXT` },
 ];
 
 export const revenueSettingsColumnMigrations: { column: string; statement: string }[] = [

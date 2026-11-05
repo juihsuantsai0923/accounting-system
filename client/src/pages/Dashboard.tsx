@@ -63,7 +63,8 @@ export default function Dashboard() {
   const currentBalance = mainLedgerQuery.data?.length ? mainLedgerQuery.data[mainLedgerQuery.data.length - 1].balance : 0;
 
   // 出貨員沒有子記帳表分潤，欠他的錢＝他還沒核銷的代墊
-  const shipperOwed = (advancesQuery.data ?? []).filter((a) => a.recipientType === "shipper").reduce((s, a) => s + a.amount, 0);
+  const approvedAdvances = (advancesQuery.data ?? []).filter((a) => a.reviewStatus === "approved");
+  const shipperOwed = approvedAdvances.filter((a) => a.recipientType === "shipper").reduce((s, a) => s + a.amount, 0);
   const totalUnsettledAdvance = (overviewQuery.data ?? []).reduce((s, r) => s + r.unsettledAdvanceTotal, 0) + shipperOwed;
   const totalOwed = (overviewQuery.data ?? []).reduce((s, r) => s + Math.max(r.totalBalance, 0), 0);
   // 公積金＝公司帳上的錢扣掉還欠每個人的錢（含代墊）；有人被多付（餘額為負）會反過來加回公積金
@@ -148,7 +149,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
-          <AlertsCard advances={advancesQuery.data ?? []} coupons={couponsQuery.data ?? []} stats={stats} reconcileIssues={reconcileIssues} integrityIssues={integrityQuery.data ?? []} />
+          <AlertsCard advances={approvedAdvances} coupons={couponsQuery.data ?? []} stats={stats} reconcileIssues={reconcileIssues} integrityIssues={integrityQuery.data ?? []} />
         </div>
         <Link to="/reconcile" className="card block hover:shadow-card-hover transition-shadow">
           <div className="text-sm text-slate-500">應收帳款（官網待付款）</div>

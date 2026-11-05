@@ -40,7 +40,8 @@ async function overviewFor(db: any, recipientType: "teacher" | "salesperson", li
         and(
           eq(advancePayments.recipientType, recipientType),
           eq(advancePayments.recipientId, person.id),
-          eq(advancePayments.status, "unsettled")
+          eq(advancePayments.status, "unsettled"),
+          eq(advancePayments.reviewStatus, "approved")
         )
       );
     const unsettledAdvanceTotal = unsettled.reduce((sum: number, a: any) => sum + a.amount, 0);
@@ -404,7 +405,7 @@ export const reportsRouter = router({
       const typeLabel: Record<string, string> = { teacher: "教師", salesperson: "推銷者", shipper: "出貨員" };
 
       const csv = toCsv(
-        ["編號", "建立日期", "身份", "對象", "訂單名稱", "下訂人", "類別", "金額", "狀態", "核銷來源", "備註"],
+        ["編號", "建立日期", "身份", "對象", "訂單名稱", "下訂人", "類別", "金額", "審核", "狀態", "核銷來源", "備註"],
         rows.map((a: any) => [
           a.id,
           formatDate(a.createdAt),
@@ -414,6 +415,7 @@ export const reportsRouter = router({
           a.buyer ?? "",
           a.category ?? "",
           a.amount,
+          a.reviewStatus === "pending" ? "待審核" : a.reviewStatus === "rejected" ? "已退回" : "已通過",
           a.status === "unsettled" ? "未核銷" : "已核銷",
           a.settledByMainLedgerId ? `母記帳表 #${a.settledByMainLedgerId}` : a.status === "settled" ? "獨立沖銷" : "-",
           a.note ?? "",

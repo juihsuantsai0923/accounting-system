@@ -2,9 +2,10 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, staffProcedure } from "../trpc";
 import { advancePayments, advanceCategories, teacherLedger, salespersonLedger, expenseTypes, mainLedger, shippers, webOrders } from "../schema";
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray } from "drizzle-orm";
 import { getCurrentBalance, recalculateBalance, writeAudit } from "../ledger";
 import { getLatestBalance } from "./mainLedger";
+import { money, sendLine } from "../lineNotify";
 
 const recipientTypeSchema = z.enum(["teacher", "salesperson", "shipper"]);
 type AdvanceRow = typeof advancePayments.$inferSelect;
@@ -36,10 +37,16 @@ async function ensureCategory(db: any, name: string) {
   if (!found) await db.insert(advanceCategories).values({ name });
 }
 
-/** 出貨員只能動自己的、還沒核銷的代墊；管理員可以動所有沒核銷的 */
+/** 老師、出貨員自己登記的代墊要管理員審核；管理員切成老師身分登記的不用 */
+function needsReview(user: any) {
+  return user.role !== "super_admin" && user.realRole !== "super_admin";
+}
+
+/** 老師、出貨員只能動自己的、還沒核銷的代墊；管理員可以動所有沒核銷的 */
 function assertCanEdit(user: any, advance: AdvanceRow) {
-  if (user.role === "shipper_self") {
-    if (advance.recipientType !== "shipper" || advance.recipientId !== user.linkedShipperId) {
+  if (user.role === "shipper_self" || user.role === "teacher_self") {
+    const [type, id] = user.role === "shipper_self" ? ["shipper", user.linkedShipperId] : ["teacher", user.linkedTeacherId];
+    if (advance.recipientType !== type || advance.recipientId !== id) {
       throw new TRPCError({ code: "FORBIDDEN", message: "只能修改自己的代墊" });
     }
   } else if (user.role !== "super_admin") {
@@ -50,6 +57,43 @@ function assertCanEdit(user: any, advance: AdvanceRow) {
 
 function ledgerTableOf(type: string) {
   return (type === "teacher" ? teacherLedger : salespersonLedger) as typeof teacherLedger;
+}
+
+/** 教師、推銷者的代墊審核通過（或管理員直接登記）才寫進子記帳表；出貨員沒有分潤，直接用代墊紀錄本身 */
+async function addToSubLedger(db: any, userId: number, advance: AdvanceRow) {
+  if (advance.recipientType === "shipper") return;
+  const type = advance.recipientType as "teacher" | "salesperson";
+  const recipientColumn = type === "teacher" ? "teacherId" : "salespersonId";
+  const currentBalance = await getCurrentBalance(db, type, advance.recipientId);
+  await db.insert(ledgerTableOf(type)).values({
+    [recipientColumn]: advance.recipientId,
+    mainLedgerId: null,
+    advancePaymentId: advance.id,
+    sourceType: "advance",
+    type: "advance",
+    itemName: advance.itemName,
+    categoryId: null,
+    categoryName: "代墊款",
+    originalAmount: advance.amount,
+    personalAmount: advance.amount,
+    personalBalance: currentBalance + advance.amount,
+    editedBy: userId,
+  } as any);
+}
+
+async function notifyReview(ctx: any, a: { orderName?: string | null; buyer?: string | null; category?: string | null; amount: number }, title: string) {
+  await sendLine(
+    ctx.line ?? {},
+    [
+      `🔔 ${title}`,
+      `${ctx.user.name ?? "有人"}：${a.category ?? ""} ${money(a.amount)}`,
+      a.orderName ? `訂單：${a.orderName}` : "",
+      a.buyer ? `下訂人：${a.buyer}` : "",
+      "到「代墊管理」審核",
+    ]
+      .filter(Boolean)
+      .join("\n")
+  ).catch(() => null);
 }
 
 /**
@@ -133,7 +177,7 @@ export const advancePaymentsRouter = router({
       return query.orderBy(desc(advancePayments.id));
     }),
 
-  /** 管理員可以替任何人新增；出貨員只能新增自己的 */
+  /** 管理員可以替任何人新增；老師、出貨員只能新增自己的，要等管理員審核 */
   create: protectedProcedure
     .input(z.object({ recipientType: recipientTypeSchema.optional(), recipientId: z.number().optional(), ...fieldsInput }))
     .mutation(async ({ ctx, input }) => {
@@ -144,6 +188,10 @@ export const advancePaymentsRouter = router({
         if (!ctx.user.linkedShipperId) throw new TRPCError({ code: "FORBIDDEN", message: "這個帳號還沒綁定出貨員，請找管理員設定" });
         recipientType = "shipper";
         recipientId = ctx.user.linkedShipperId;
+      } else if (ctx.user.role === "teacher_self") {
+        if (!ctx.user.linkedTeacherId) throw new TRPCError({ code: "FORBIDDEN", message: "這個帳號還沒綁定教師，請找管理員設定" });
+        recipientType = "teacher";
+        recipientId = ctx.user.linkedTeacherId;
       } else if (ctx.user.role !== "super_admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "只有系統管理員可以修改帳目" });
       }
@@ -153,6 +201,7 @@ export const advancePaymentsRouter = router({
 
       await ensureCategory(db, input.category);
       const itemName = input.itemName || advanceItemName(input);
+      const review = needsReview(ctx.user);
       const [advance] = await db
         .insert(advancePayments)
         .values({
@@ -164,31 +213,14 @@ export const advancePaymentsRouter = router({
           buyer: input.buyer || null,
           category: input.category,
           amount,
+          reviewStatus: review ? "pending" : "approved",
           note: input.note || null,
           editedBy: ctx.user.id,
         })
         .returning();
 
-      // 出貨員沒有分潤，子記帳表直接用代墊紀錄本身；教師、推銷者照舊寫進子記帳表
-      if (recipientType !== "shipper") {
-        const ledgerTable = ledgerTableOf(recipientType);
-        const recipientColumn = recipientType === "teacher" ? "teacherId" : "salespersonId";
-        const currentBalance = await getCurrentBalance(db, recipientType, recipientId);
-        await db.insert(ledgerTable).values({
-          [recipientColumn]: recipientId,
-          mainLedgerId: null,
-          advancePaymentId: advance.id,
-          sourceType: "advance",
-          type: "advance",
-          itemName,
-          categoryId: null,
-          categoryName: "代墊款",
-          originalAmount: amount,
-          personalAmount: amount,
-          personalBalance: currentBalance + amount,
-          editedBy: ctx.user.id,
-        } as any);
-      }
+      if (review) await notifyReview(ctx, advance, "有新的代墊等你審核");
+      else await addToSubLedger(db, ctx.user.id, advance);
 
       await writeAudit(db, ctx.user.id, "create", "advancePayment", advance.id, null, advance);
       return advance;
@@ -204,7 +236,10 @@ export const advancePaymentsRouter = router({
 
     await ensureCategory(db, input.category);
     const itemName = input.itemName || advanceItemName(input);
+    // 本人修改後要重新審核，之前通過時寫進子記帳表的那行先拿掉
+    const review = needsReview(ctx.user);
     const patch = {
+      ...(review ? { reviewStatus: "pending", reviewNote: null } : {}),
       itemName,
       orderName: input.orderName || null,
       orderNo: input.orderNo || null,
@@ -219,22 +254,43 @@ export const advancePaymentsRouter = router({
 
     if (advance.recipientType !== "shipper") {
       const tbl = ledgerTableOf(advance.recipientType);
-      await db
-        .update(tbl)
-        .set({ itemName, originalAmount: amount, personalAmount: amount, updatedAt: Date.now() })
-        .where(and(eq(tbl.advancePaymentId, advance.id), eq(tbl.sourceType, "advance")));
-      if (amount !== advance.amount) await recalculateBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
+      const row = and(eq(tbl.advancePaymentId, advance.id), eq(tbl.sourceType, "advance"));
+      if (review) await db.delete(tbl).where(row);
+      else await db.update(tbl).set({ itemName, originalAmount: amount, personalAmount: amount, updatedAt: Date.now() }).where(row);
+      if (review || amount !== advance.amount) await recalculateBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
     }
+    if (review) await notifyReview(ctx, { ...input, amount }, "有代墊修改後等你重新審核");
     await writeAudit(db, ctx.user.id, "update", "advancePayment", input.id, advance, { ...advance, ...patch });
     return { ok: true };
   }),
+
+  /** 待審核筆數（畫面右下角提醒、每日 LINE） */
+  pendingReviewCount: staffProcedure.query(async ({ ctx }) => {
+    const [row] = await ctx.db.select({ n: count() }).from(advancePayments).where(eq(advancePayments.reviewStatus, "pending"));
+    return row?.n ?? 0;
+  }),
+
+  /** 管理員審核：通過才算公司欠的錢（教師代墊這時才進子記帳表）；退回要本人改完重送或刪除 */
+  review: staffProcedure
+    .input(z.object({ id: z.number(), approve: z.boolean(), note: z.string().trim().max(200).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = ctx.db;
+      const [advance] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
+      if (!advance) throw new TRPCError({ code: "NOT_FOUND", message: "代墊記錄不存在" });
+      if (advance.reviewStatus !== "pending") throw new TRPCError({ code: "BAD_REQUEST", message: "這筆代墊已經審核過了" });
+      const patch = { reviewStatus: input.approve ? "approved" : "rejected", reviewNote: input.approve ? null : input.note || null, updatedAt: Date.now() };
+      await db.update(advancePayments).set(patch).where(eq(advancePayments.id, input.id));
+      if (input.approve) await addToSubLedger(db, ctx.user.id, advance);
+      await writeAudit(db, ctx.user.id, "review", "advancePayment", input.id, advance, { ...advance, ...patch });
+      return { ok: true };
+    }),
 
   categories: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.select().from(advanceCategories).orderBy(advanceCategories.id);
   }),
 
   addCategory: protectedProcedure.input(z.object({ name: z.string().trim().min(1).max(30) })).mutation(async ({ ctx, input }) => {
-    if (!["super_admin", "shipper_self"].includes(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "沒有權限新增類別" });
+    if (!["super_admin", "shipper_self", "teacher_self"].includes(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "沒有權限新增類別" });
     await ensureCategory(ctx.db, input.name);
     return { name: input.name };
   }),
@@ -266,6 +322,7 @@ export const advancePaymentsRouter = router({
       const [advance] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
       if (!advance) throw new TRPCError({ code: "NOT_FOUND", message: "代墊記錄不存在" });
       if (advance.status !== "unsettled") throw new TRPCError({ code: "BAD_REQUEST", message: "此代墊已核銷" });
+      if (advance.reviewStatus !== "approved") throw new TRPCError({ code: "BAD_REQUEST", message: "這筆代墊還沒審核通過" });
 
       if (advance.recipientType === "shipper") {
         await settleShipperAdvances(db, ctx.user.id, [advance]);
@@ -315,6 +372,7 @@ export const advancePaymentsRouter = router({
         eq(advancePayments.recipientType, "shipper"),
         eq(advancePayments.recipientId, input.shipperId),
         eq(advancePayments.status, "unsettled"),
+        eq(advancePayments.reviewStatus, "approved"),
       ];
       if (input.ids?.length) conditions.push(inArray(advancePayments.id, input.ids));
       const list = await ctx.db.select().from(advancePayments).where(and(...conditions));
