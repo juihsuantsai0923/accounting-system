@@ -37,6 +37,8 @@ export async function recalculateBalance(db: any, recipientType: Recipient, reci
   let running = 0;
   for (const row of rows) {
     running += ledgerDelta(row);
+    // 只寫有變的：一張訂單同一人會有好幾筆分潤，每次都全部重寫會超過 Worker 單次請求的查詢上限，重算到一半就中斷
+    if (row.personalBalance === running) continue;
     await db.update(tbl).set({ personalBalance: running, updatedAt: Date.now() }).where(eq(tbl.id, row.id));
   }
   return running;
@@ -57,6 +59,7 @@ export async function recalculateMainLedgerBalance(db: any) {
   let running = 0;
   for (const row of rows) {
     running += row.type === "income" ? row.amount : -row.amount;
+    if (row.balance === running) continue;
     await db.update(mainLedger).set({ balance: running, updatedAt: Date.now() }).where(eq(mainLedger.id, row.id));
   }
   return running;

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { makeDb } from "./helpers";
 import { appRouter } from "../server/routers/index";
 import { advanceItemName } from "../server/routers/advancePayments";
+import { recalculateBalance } from "../server/ledger";
 
 function setup() {
   const { db, sqlite } = makeDb();
@@ -151,4 +152,30 @@ test("剩餘公積金：每筆記完後的數字，代墊算欠款，現在的�
   const overview = await admin.reports.balanceOverview();
   const balance = rows[rows.length - 1].balance;
   assert.equal(await admin.mainLedger.reserveNow(), balance - overview.reduce((t, r) => t + r.totalBalance, 0));
+});
+
+test("重算子記帳表餘額：修好對不上的那筆，沒變的不重寫", async () => {
+  const { db, admin, sqlite } = setup();
+  const now = Date.now();
+  sqlite.prepare("INSERT INTO expense_types (id, name, created_at, updated_at) VALUES (901, '測試', ?, ?)").run(now, now);
+  sqlite.prepare("INSERT INTO income_types (id, name, created_at, updated_at) VALUES (901, '測試', ?, ?)").run(now, now);
+  sqlite.prepare("INSERT INTO teachers (id, name, created_at, updated_at) VALUES (901, '老師乙', ?, ?)").run(now, now);
+  for (const amount of ["100", "200"]) {
+    await admin.mainLedger.create({
+      type: "income",
+      itemName: "收入",
+      categoryId: 901,
+      amount,
+      distributions: [{ type: "teacher", recipientId: 901, amount }],
+    });
+  }
+  const rows = () => sqlite.prepare("SELECT id, personal_balance b, updated_at u FROM teacher_ledger WHERE teacher_id = 901 ORDER BY id").all() as any[];
+  const [first, last] = rows();
+  sqlite.prepare("UPDATE teacher_ledger SET updated_at = 1 WHERE id = ?").run(first.id);
+  sqlite.prepare("UPDATE teacher_ledger SET personal_balance = 0 WHERE id = ?").run(last.id);
+
+  assert.equal(await recalculateBalance(db, "teacher", 901), 300);
+  const after = rows();
+  assert.equal(after[1].b, 300);
+  assert.equal(after[0].u, 1);
 });
