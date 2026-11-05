@@ -35,6 +35,8 @@ export interface DistItem {
   amount: number;
   role: "owner" | "team_bonus" | "referral";
   itemNameSuffix: string;
+  /** 多品項合成一筆時，這份分潤所屬品項的金額（子記帳表的原始金額） */
+  baseAmount?: number;
 }
 
 export class CourseIncomeError extends Error {

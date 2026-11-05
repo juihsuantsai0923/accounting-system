@@ -92,7 +92,7 @@ export async function insertIncome(
       itemName: personalItemName(dist),
       categoryId: entry.categoryId,
       categoryName: entry.categoryName,
-      originalAmount: entry.amount,
+      originalAmount: dist.baseAmount ?? entry.amount,
       personalAmount: dist.amount,
       personalBalance: 0,
       editedBy: userId,

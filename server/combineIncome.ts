@@ -31,7 +31,7 @@ export function combineIncome(parts: IncomePart[]) {
             : "線上課程"
       : "多項收入";
   const distributions: DistItem[] = parts.flatMap((p) =>
-    p.distributions.map((d) => ({ ...d, itemNameSuffix: `${p.personalLabel}（${d.itemNameSuffix}）` }))
+    p.distributions.map((d) => ({ ...d, baseAmount: p.amount, itemNameSuffix: `${p.personalLabel}（${d.itemNameSuffix}）` }))
   );
   return {
     itemName: parts.map((p) => p.name).join("、"),

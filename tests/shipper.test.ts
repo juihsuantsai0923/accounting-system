@@ -4,6 +4,8 @@ import { makeDb } from "./helpers";
 import { appRouter } from "../server/routers/index";
 import { advanceItemName } from "../server/routers/advancePayments";
 import { recalculateBalance } from "../server/ledger";
+import { insertIncome } from "../server/routers/mainLedger";
+import { combineIncome } from "../server/combineIncome";
 
 function setup() {
   const { db, sqlite } = makeDb();
@@ -178,4 +180,21 @@ test("重算子記帳表餘額：修好對不上的那筆，沒變的不重寫",
   const after = rows();
   assert.equal(after[1].b, 300);
   assert.equal(after[0].u, 1);
+});
+
+test("多品項訂單：子記帳表的原始金額是該品項的金額，不是整張訂單", async () => {
+  const { db, sqlite } = setup();
+  const now = Date.now();
+  sqlite.prepare("INSERT INTO teachers (id, name, created_at, updated_at) VALUES (902, '老師丙', ?, ?)").run(now, now);
+  const dist = (amount: number) => [{ type: "teacher" as const, recipientId: 902, amount, role: "owner" as const, itemNameSuffix: "分潤" }];
+  const c = combineIncome([
+    { source: "tutoring", name: "衝刺班", categoryId: 1, categoryName: "小班家教", amount: 27000, distributions: dist(24300), personalLabel: "衝刺班" },
+    { source: "book", name: "刷題本", categoryId: 2, categoryName: "書籍", amount: 1000, distributions: dist(650), personalLabel: "刷題本" },
+  ]);
+  await insertIncome(db, 3, { itemName: c.itemName, categoryId: 1, categoryName: c.categoryName, amount: c.amount, incomeSource: c.incomeSource, breakdown: c.breakdown }, c.distributions, (d) => d.itemNameSuffix);
+  const rows = sqlite.prepare("SELECT original_amount o, personal_amount p FROM teacher_ledger WHERE teacher_id = 902 ORDER BY id").all();
+  assert.deepEqual(rows, [
+    { o: 27000, p: 24300 },
+    { o: 1000, p: 650 },
+  ]);
 });
