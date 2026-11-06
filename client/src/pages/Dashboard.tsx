@@ -17,6 +17,9 @@ import {
   type Period,
 } from "../components/DashboardAnalytics";
 
+/** 發完薪水後公積金至少要留的錢 */
+const RESERVE_TARGET = 10000;
+
 function fmt(n: number) {
   return n < 0 ? `−NT$${Math.abs(n).toLocaleString()}` : `NT$${n.toLocaleString()}`;
 }
@@ -112,6 +115,9 @@ export default function Dashboard() {
   const reserveFund = currentBalance - netOwed;
   const unpaidOrders = unpaidQuery.data ?? [];
   const unpaidTotal = unpaidOrders.reduce((s, o) => s + o.unpaidAmount, 0);
+  // 薪水全部發掉後真正留在公司的錢＝公積金扣掉家長還沒付的；少於目標時，差額先少付給蔡睿軒
+  const realReserve = reserveFund - unpaidTotal;
+  const payShortfall = Math.max(RESERVE_TARGET - realReserve, 0);
 
   function handleExportOverviewCsv() {
     const csv = toCsvClient(
@@ -169,6 +175,10 @@ export default function Dashboard() {
         <div className="text-sm text-slate-500">公積金（公司自己的錢{unpaidTotal > 0 ? "，含未入帳" : ""}）</div>
         <div className={`text-3xl font-semibold mt-1 ${reserveFund < 0 ? "text-red-600" : "text-brand-700"}`}>{fmt(reserveFund)}</div>
         {unpaidTotal > 0 && <div className="text-xs text-slate-500 mt-1">（未入帳 {fmt(unpaidTotal)}，家長還沒付，公積金暫時吸收）</div>}
+        <div className="text-sm text-slate-700 mt-2">
+          如果現在把所有薪水發完，真實公積金是 {fmt(realReserve)}。要留 {fmt(RESERVE_TARGET)}，
+          {payShortfall > 0 ? <b> 蔡睿軒要先少領 {fmt(payShortfall)}</b> : " 不用少領"}。
+        </div>
         <div className="text-xs text-slate-400 mt-2">
           ＝ 帳本目前餘額 {fmt(currentBalance)} − 還欠所有人的錢 {fmt(netOwed)}
           {loanTotal > 0 && `（其中創始基金借款 ${fmt(loanTotal)}，要還給出資人）`}。
