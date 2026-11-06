@@ -14,9 +14,12 @@ export function PeopleDirectory({ kind }: Props) {
   const navigate = useNavigate();
   const teachersQuery = trpc.teachers.list.useQuery(undefined, { enabled: kind === "teacher" });
   const salespeopleQuery = trpc.salespeople.list.useQuery(undefined, { enabled: kind === "salesperson" });
+  const shippersQuery = trpc.shippers.list.useQuery(undefined, { enabled: kind === "salesperson" });
   const [query, setQuery] = useState("");
 
-  const list = (kind === "teacher" ? teachersQuery.data : salespeopleQuery.data) ?? [];
+  // 出貨員的分潤記在同名推銷者的子記帳表，在「人員」裡單獨列，不混在推銷者名單
+  const shipperNames = new Set((shippersQuery.data ?? []).map((s: any) => s.name));
+  const list = (kind === "teacher" ? teachersQuery.data : salespeopleQuery.data?.filter((p: any) => !shipperNames.has(p.name))) ?? [];
   const filtered = list.filter((p) => p.name.toLowerCase().includes(query.trim().toLowerCase()));
   const label = kind === "teacher" ? "教師" : "推銷者";
 

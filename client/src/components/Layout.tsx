@@ -22,12 +22,17 @@ function TabLink({ to, children, onClick, end }: { to: string; children: React.R
 }
 
 /**
- * 「人員」：直接列出每位老師（點了就是他的子記帳表），最後是推銷者名單。
+ * 「人員」：直接列出每位老師（點了就是他的子記帳表），再來是出貨員（分潤記在同名推銷者的子記帳表），最後是推銷者名單。
  * 桌面版滑鼠移上去（或用鍵盤 Tab 進去）展開子選單；手機選單沒有滑鼠，直接列出來。
  */
 function PeopleMenu({ mobile, onNavigate }: { mobile: boolean; onNavigate: () => void }) {
   const { pathname } = useLocation();
   const teachers = (trpc.teachers.list.useQuery().data ?? []).filter((t: any) => t.isActive !== false);
+  const salespeople = trpc.salespeople.list.useQuery().data ?? [];
+  const shippers = (trpc.shippers.list.useQuery().data ?? [])
+    .filter((s: any) => s.isActive !== false)
+    .map((s: any) => ({ ...s, ledger: salespeople.find((p: any) => p.name === s.name) }))
+    .filter((s: any) => s.ledger);
   const items = (
     <>
       {teachers.map((t: any) => (
@@ -36,6 +41,12 @@ function PeopleMenu({ mobile, onNavigate }: { mobile: boolean; onNavigate: () =>
         </TabLink>
       ))}
       {teachers.length > 0 && <div className="my-0.5 border-t border-brand-700/10" />}
+      {shippers.map((s: any) => (
+        <TabLink key={s.id} to={`/salesperson/${s.ledger.id}/dashboard`} onClick={onNavigate}>
+          {s.name}
+        </TabLink>
+      ))}
+      {shippers.length > 0 && <div className="my-0.5 border-t border-brand-700/10" />}
       <TabLink to="/salespeople" onClick={onNavigate}>
         推銷者
       </TabLink>
