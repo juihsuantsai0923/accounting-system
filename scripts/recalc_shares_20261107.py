@@ -1,4 +1,4 @@
-"""2026-11-07 舊帳重算：把所有課程、小班家教、試上、書籍收入改成新分潤規則。
+"""2026-11-07 舊帳重算：第一筆小班家教（含）之後的課程、小班家教、試上、書籍收入改成新分潤規則，更早的帳不動。
 
 用法：python scripts/recalc_shares_20261107.py <D1 export.sql> <輸出.sql>
 只讀 export，產生要在 D1 跑的 SQL，並在記憶體裡套用一次做檢查。行事曆、運費、創始基金、其他收入不動。
@@ -77,12 +77,15 @@ def main(src, dst):
     ]
 
     entries = c.execute("SELECT * FROM main_ledger WHERE deleted_at IS NULL AND type = 'income' ORDER BY created_at, id").fetchall()
+    cutoff = next(e["created_at"] for e in entries if e["income_source"] == "tutoring" or "tutoring" in (e["breakdown"] or ""))
     next_t = c.execute("SELECT MAX(id) FROM teacher_ledger").fetchone()[0] + 1
     next_s = 1
     next_d = c.execute("SELECT MAX(id) FROM ledger_distribution").fetchone()[0] + 1
     report = []
 
     for e in entries:
+        if e["created_at"] < cutoff:
+            continue
         cat, src_type = e["category_name"], e["income_source"]
         if cat in ("創始基金", "其他"):
             continue
@@ -189,7 +192,7 @@ def main(src, dst):
     names_s = {r["id"]: r["name"] for r in c.execute("SELECT id, name FROM salespeople")}
     main_bal = c.execute("SELECT SUM(CASE type WHEN 'income' THEN amount ELSE -amount END) FROM main_ledger WHERE deleted_at IS NULL").fetchone()[0]
     owed = sum(finals.values())
-    print("statements", len(stmts), "entries", len(report))
+    print("statements", len(stmts), "entries", len(report), "cutoff entry", next(e["id"] for e in entries if e["created_at"] == cutoff))
     for (tbl, pid), v in sorted(finals.items()):
         print(tbl, (names if tbl == "teacher_ledger" else names_s)[pid], v)
     print("母帳餘額", main_bal, "子帳合計", owed, "公積金", main_bal - owed)
