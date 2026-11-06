@@ -338,7 +338,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
 
   const bookAmountNum = parseInt(bookAmountShown || "0", 10) || 0;
   const bookSplitQuery = trpc.mainLedger.previewBookSplit.useQuery(
-    { lines: filledBookLines.map((l) => ({ bookId: Number(l.bookId), qty: parseInt(l.qty, 10) })), amount: bookAmountNum },
+    { lines: filledBookLines.map((l) => ({ bookId: Number(l.bookId), qty: parseInt(l.qty, 10) })), amount: bookAmountNum, couponId: bookCouponId === "" ? null : bookCouponId },
     { enabled: filledBookLines.length > 0 && bookAmountNum > 0 }
   );
 
