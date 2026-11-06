@@ -3,7 +3,7 @@ import { NOTE_FIELDS, parseNote, type NoteKey, type NoteParts } from "../../../s
 const PLACEHOLDER: Record<NoteKey, string> = {
   buyer: "付錢的人，例如 張崇瑋",
   order: "例如 LX-20261027-004",
-  coupon: "例如 LEVIAX001",
+  coupon: "例如 網紅專屬優惠碼",
   memo: "其他要記的事",
 };
 
