@@ -5,6 +5,7 @@ import { coupons } from "../schema";
 import { asc, eq } from "drizzle-orm";
 import { writeAudit } from "../ledger";
 import { toHalfWidth } from "../textNormalize";
+import { ensureCouponSalesperson } from "../revenueCalc";
 
 const codeSchema = z.preprocess((v) => (typeof v === "string" ? toHalfWidth(v).trim().toUpperCase() : v), z.string().min(1));
 const dateSchema = z
@@ -27,6 +28,7 @@ export const couponsRouter = router({
         .insert(coupons)
         .values({ code: input.code, discountRate: input.discountPercent / 100, validUntil: input.validUntil })
         .returning();
+      await ensureCouponSalesperson(ctx.db, created);
       await writeAudit(ctx.db, ctx.user.id, "create", "coupon", created.id, null, created);
       return created;
     }),

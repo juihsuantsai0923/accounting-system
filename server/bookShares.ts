@@ -1,5 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
-import { books, ledgerDistribution, mainLedger, teacherLedger } from "./schema";
+import { books, ledgerDistribution, mainLedger, salespersonLedger, teacherLedger } from "./schema";
 import { getRevenueSettings, teacherIdForSubject } from "./revenueCalc";
 import { recalculateBalance } from "./ledger";
 
@@ -8,6 +8,7 @@ import { recalculateBalance } from "./ledger";
  *   每一筆含書籍的收入，依 breakdown（沒有就整筆）找出每一組書的金額 g，
  *   主理老師應得＝g − round(g ×（書籍公積金＋行政費）)，跟子記帳表「（書籍分潤）」那一列不同就改，分配表一起改。
  *   行政費那幾列不動（只重算老師那一份；行政費比例改了不回頭重算）。行事曆、運費、認不出科目的書本來就沒分潤，跳過。
+ * 用了網紅碼的記錄是照售價分的，不用這裡的算法，整筆跳過。
  * dryRun 只算不寫。回傳每一項的新舊金額。
  */
 export async function recalcBookShares(db: any, dryRun = false) {
@@ -20,7 +21,11 @@ export async function recalcBookShares(db: any, dryRun = false) {
   );
 
   const changes: { entryId: number; teacherId: number; name: string; amount: number; before: number; after: number }[] = [];
+  const influencerEntries = new Set<number>(
+    (await db.select().from(salespersonLedger)).filter((r: any) => String(r.itemName).endsWith("（網紅佣金）")).map((r: any) => r.mainLedgerId)
+  );
   for (const e of entries) {
+    if (influencerEntries.has(e.id)) continue;
     const parts: { source: string; name: string; categoryId: number; amount: number }[] = e.breakdown
       ? JSON.parse(e.breakdown)
       : e.incomeSource === "mixed"

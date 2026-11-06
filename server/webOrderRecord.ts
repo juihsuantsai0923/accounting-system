@@ -1,6 +1,6 @@
 import { isNull } from "drizzle-orm";
 import { books, coupons, courses, mainLedger } from "./schema";
-import { computeBookIncome, computeCourseIncome, computeTutoringIncome, splitBookIncome, CourseIncomeError } from "./revenueCalc";
+import { computeBookIncome, computeCourseIncome, computeTutoringIncome, splitBookIncome, CourseIncomeError, INFLUENCER_START } from "./revenueCalc";
 import { combineIncome, type IncomePart } from "./combineIncome";
 import { formatNote, parseNote } from "./noteFormat";
 
@@ -11,6 +11,7 @@ import { formatNote, parseNote } from "./noteFormat";
  *   書籍 → 依科目：公積金＋行政費＋該科老師；行事曆（筆記本）與運費全數留給公積金
  * 官網折扣（優惠碼）只算在能用優惠碼的品項：線上課程、書籍；小班家教不能用優惠碼，不攤折扣（見 allocateDiscount）。
  * 運費（實付比「定價−折扣」多出來的）算進書籍那筆。
+ * 2026-11-07 起的訂單入帳時可選網紅碼（官網沒有送用了哪組碼）：線上課程、書籍改照售價分，並記網紅佣金。
  * 備註寫「買家：姓名｜官網訂單：編號」，對帳就會自動配到這張訂單，也用來避免重複入帳。
  */
 
@@ -119,8 +120,20 @@ export async function loadCatalog(db: any) {
 }
 
 /** 規劃一張訂單要怎麼入帳（只計算、不寫入） */
-export async function planOrder(db: any, order: any, overrides: Record<number, LineOverride>, catalog: Awaited<ReturnType<typeof loadCatalog>>) {
+export async function planOrder(
+  db: any,
+  order: any,
+  overrides: Record<number, LineOverride>,
+  catalog: Awaited<ReturnType<typeof loadCatalog>>,
+  couponId: number | null = null
+) {
   const errors: string[] = [];
+  const influencerEligible = order.orderedAt >= INFLUENCER_START && order.discount > 0;
+  const coupon: any = couponId ? catalog.coupons.find((c: any) => c.id === couponId) : null;
+  if (couponId && !coupon) errors.push("找不到這組網紅碼");
+  if (coupon && !influencerEligible) errors.push("只有 2026-11-07 起、有折扣的訂單才能選網紅碼");
+  if (coupon && !coupon.salespersonId) errors.push(`網紅碼 ${coupon.code} 還沒有對應的推銷者`);
+  const salespersonId: number | null = coupon?.salespersonId ?? null;
   const items: { name: string; price: number }[] = JSON.parse(order.items);
   if (order.tab === "cancelled") errors.push("這張訂單在官網已取消");
   if (order.manualStatus === "ignored") errors.push("這張訂單已標記「不需入帳」");
@@ -149,6 +162,7 @@ export async function planOrder(db: any, order: any, overrides: Record<number, L
 
   const entries: IncomePart[] = [];
   const noteBits: string[] = couponNote ? [couponNote] : [];
+  if (coupon) noteBits.push(`網紅碼 ${coupon.code}`);
   const bookLines = counted.filter((l) => l.kind === "book");
   const others = counted.filter((l) => l.kind === "tutoring" || l.kind === "course");
   // 沒有書可以放運費時，加到最後一門課
@@ -163,7 +177,8 @@ export async function planOrder(db: any, order: any, overrides: Record<number, L
         const r = await computeTutoringIncome(db, { courseId: l.targetId!, amount });
         entries.push({ source: "tutoring", name: r.course.name, categoryId: r.course.id, categoryName: "小班家教", amount, distributions: r.distributions, personalLabel: r.course.name });
       } else {
-        const r = await computeCourseIncome(db, { courseId: l.targetId!, amount });
+        const influencer = salespersonId ? { listPrice: l.price, salespersonId } : undefined;
+        const r = await computeCourseIncome(db, { courseId: l.targetId!, amount, influencer });
         noteBits.push(`${r.course.name} ${l.years} 年方案`);
         entries.push({ source: "course", name: r.course.name, categoryId: r.course.id, categoryName: r.course.name, amount, distributions: r.distributions, personalLabel: r.course.name });
       }
@@ -174,7 +189,8 @@ export async function planOrder(db: any, order: any, overrides: Record<number, L
       const r = await computeBookIncome(db, { lines: [...qty].map(([bookId, q]) => ({ bookId, qty: q })), couponId: null });
       const goods = bookLines.reduce((s, l) => s + l.amount, 0);
       // 書依科目分給老師；運費不分，全部留公積金
-      for (const g of await splitBookIncome(db, r.detail, goods)) entries.push({ source: "book", categoryName: "書籍", ...g });
+      const influencer = salespersonId ? { listTotal: bookLines.reduce((s, l) => s + l.price, 0), salespersonId } : undefined;
+      for (const g of await splitBookIncome(db, r.detail, goods, influencer)) entries.push({ source: "book", categoryName: "書籍", ...g });
       if (shipping) {
         noteBits.push(`運費 ${shipping} 元`);
         entries.push({ source: "book", name: "運費", categoryId: r.detail[0].bookId, categoryName: "書籍", amount: shipping, distributions: [], personalLabel: "運費" });
@@ -194,6 +210,8 @@ export async function planOrder(db: any, order: any, overrides: Record<number, L
     discount: order.discount,
     statusLabel: order.statusLabel,
     shipping,
+    influencerEligible,
+    couponId,
     lines,
     // 預覽用：這一筆收入裡的每個項目，各自的公積金與分潤
     parts: entries.map((e) => ({

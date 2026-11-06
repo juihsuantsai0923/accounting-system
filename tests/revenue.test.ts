@@ -177,3 +177,24 @@ test("行政費依權重分：4 : 3.5 : 1.5 : 1，出貨員記在推銷者子帳
   assert.deepEqual(adminFee(trial), [80, 70, 30, 20]);
   assert.equal(trial.reserve, 999 - 699 - 200);
 });
+
+test("網紅碼：11/7 起的訂單照售價分，佣金 5%，小班家教不算，舊訂單不能選", async () => {
+  const { db, sqlite } = makeDb();
+  sqlite.exec("UPDATE revenue_settings SET admin_fee_rate = 0.2, book_reserve_rate = 0.35");
+  sqlite.exec("INSERT INTO salespeople (id, name, is_active, created_at, updated_at) VALUES (9, 'SNORLAX002', 1, 0, 0)");
+  sqlite.exec("UPDATE coupons SET salesperson_id = 9 WHERE code = 'SNORLAX002'");
+  const coupon = (sqlite.prepare("SELECT id FROM coupons WHERE code = 'SNORLAX002'").get() as any).id;
+  const order = { ...webOrder("LX-20261108-001", 3182 + 27000, 168, [["物理先修課程（四本全套）", 3350], ["科學班物理衝刺班 2026-2027", 27000]]), orderedAt: Date.UTC(2026, 10, 8) };
+  const p = await planOrder(db, order, {}, await loadCatalog(db), coupon);
+  assert.deepEqual(p.errors, []);
+  const book = part(p, "物理 四本全套");
+  assert.equal(book.amount, 3182);
+  // 售價 3350：公積金 35%＋行政費 20%＝1843，佣金 168，老師＝實收 3182 − 1843 − 168
+  assert.equal(owner(book), 1171);
+  assert.equal(book.distributions.find((d: any) => d.role === "referral")!.amount, 168);
+  const tutoring = part(p, "科學班物理衝刺班 2026-2027");
+  assert.ok(!tutoring.distributions.some((d: any) => d.role === "referral"));
+
+  const old = await planOrder(db, { ...order, orderedAt: Date.UTC(2026, 10, 6, 15) }, {}, await loadCatalog(db), coupon);
+  assert.ok(old.errors.some((e) => e.includes("2026-11-07")));
+});

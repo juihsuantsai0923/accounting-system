@@ -18,7 +18,11 @@ const overridesInput = z
     })
   )
   .default([]);
-const recordInput = z.object({ orderNos: z.array(z.string()).min(1).max(50), overrides: overridesInput });
+const recordInput = z.object({
+  orderNos: z.array(z.string()).min(1).max(50),
+  overrides: overridesInput,
+  coupons: z.array(z.object({ orderNo: z.string(), couponId: z.number() })).max(50).default([]),
+});
 
 async function planOrders(db: any, input: z.infer<typeof recordInput>) {
   const rows = await db.select().from(webOrders).where(inArray(webOrders.orderNo, input.orderNos));
@@ -31,7 +35,7 @@ async function planOrders(db: any, input: z.infer<typeof recordInput>) {
     for (const o of input.overrides.filter((x) => x.orderNo === no)) {
       ov[o.idx] = o.kind === "skip" ? { kind: "skip" } : { kind: o.kind, id: o.id ?? 0 };
     }
-    plans.push(await planOrder(db, order, ov, catalog));
+    plans.push(await planOrder(db, order, ov, catalog, input.coupons.find((c) => c.orderNo === no)?.couponId ?? null));
   }
   return plans;
 }

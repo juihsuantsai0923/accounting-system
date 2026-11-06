@@ -235,6 +235,7 @@ export const createTableStatements: string[] = [
     discount_rate REAL NOT NULL,
     valid_until TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
+    salesperson_id INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   )`,

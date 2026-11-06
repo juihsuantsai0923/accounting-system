@@ -137,6 +137,7 @@ export const coupons = sqliteTable(
     discountRate: real("discount_rate").notNull(), // 0.15 = 折 15%
     validUntil: text("valid_until"), // YYYY-MM-DD，空白＝不限期
     isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    salespersonId: integer("salesperson_id"), // 這組網紅碼的佣金給誰（推銷者）
     ...timestamps,
   },
   (t) => ({ codeIdx: uniqueIndex("coupons_code_idx").on(t.code) })

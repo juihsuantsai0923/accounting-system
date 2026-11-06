@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { eq, inArray } from "drizzle-orm";
 import { books, coupons, courses, integrationKeys, teachers, webOrders } from "./schema";
-import { SUBJECT_TEACHERS } from "./revenueCalc";
+import { SUBJECT_TEACHERS, ensureCouponSalesperson } from "./revenueCalc";
 
 /**
  * 官網訂單同步（書籤小工具用）。
@@ -96,7 +96,8 @@ export async function upsertCatalog(db: any, cat: z.infer<typeof catalogPayload>
     seenCoupons.add(code);
     const found = existingCoupons.find((c) => c.code === code);
     if (found) await db.update(coupons).set({ discountRate: rate, validUntil, isActive: active, updatedAt: now }).where(eq(coupons.id, found.id));
-    else await db.insert(coupons).values({ code, discountRate: rate, validUntil, isActive: active });
+    const saved = found ?? (await db.insert(coupons).values({ code, discountRate: rate, validUntil, isActive: active }).returning())[0];
+    if (active) await ensureCouponSalesperson(db, saved);
   }
   if (cat.coupons.length) {
     for (const c of existingCoupons) if (!seenCoupons.has(c.code) && c.isActive) await db.update(coupons).set({ isActive: false, updatedAt: now }).where(eq(coupons.id, c.id));

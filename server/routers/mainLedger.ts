@@ -407,7 +407,8 @@ export const mainLedgerRouter = router({
         coupon: r!.coupon ? `${r!.coupon.code}（${Math.round(r!.coupon.discountRate * 100)}%）` : undefined,
         memo: input.amount !== r!.suggestedAmount ? `定價計算 ${r!.suggestedAmount} 元，實收 ${input.amount} 元` : undefined,
       });
-      const groups = await splitBookIncome(ctx.db, r!.detail, input.amount);
+      const couponPerson = r!.coupon?.salespersonId;
+      const groups = await splitBookIncome(ctx.db, r!.detail, input.amount, couponPerson ? { listTotal: r!.subtotal, salespersonId: couponPerson } : undefined);
       const c = combineIncome(groups.map((g) => ({ source: "book" as const, categoryName: "書籍", ...g })));
       const entry = await insertIncome(
         ctx.db,
@@ -421,15 +422,15 @@ export const mainLedgerRouter = router({
 
   /** 書籍：只計算、不寫入，預覽依科目怎麼分 */
   previewBookSplit: staffProcedure
-    .input(z.object({ lines: bookLinesInput, amount: z.number().int().positive() }))
+    .input(z.object({ lines: bookLinesInput, amount: z.number().int().positive(), couponId: z.number().nullable().default(null) }))
     .query(async ({ ctx, input }) => {
-      let r;
       try {
-        r = await computeBookIncome(ctx.db, { lines: input.lines, couponId: null });
+        const r = await computeBookIncome(ctx.db, { lines: input.lines, couponId: input.couponId });
+        const couponPerson = r.coupon?.salespersonId;
+        return await splitBookIncome(ctx.db, r.detail, input.amount, couponPerson ? { listTotal: r.subtotal, salespersonId: couponPerson } : undefined);
       } catch (e) {
         mapCourseIncomeError(e);
       }
-      return splitBookIncome(ctx.db, r!.detail, input.amount);
     }),
 
   /**

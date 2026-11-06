@@ -16,7 +16,9 @@ type Override = { orderNo: string; idx: number; kind: "tutoring" | "book" | "ski
 export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orderNos: string[]; onClose: () => void; onDone: (msg: string) => void }) {
   const utils = trpc.useUtils();
   const [overrides, setOverrides] = useState<Override[]>([]);
-  const preview = trpc.webOrders.previewRecord.useQuery({ orderNos, overrides });
+  const [orderCoupons, setOrderCoupons] = useState<{ orderNo: string; couponId: number }[]>([]);
+  const preview = trpc.webOrders.previewRecord.useQuery({ orderNos, overrides, coupons: orderCoupons });
+  const couponsQuery = trpc.coupons.list.useQuery();
   const teachers = trpc.teachers.list.useQuery();
   const salespeople = trpc.salespeople.list.useQuery();
   const booksQuery = trpc.books.list.useQuery();
@@ -50,6 +52,14 @@ export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orde
     });
   }
 
+  function setOrderCoupon(orderNo: string, value: string) {
+    setOrderCoupons((prev) => {
+      const rest = prev.filter((c) => c.orderNo !== orderNo);
+      return value ? [...rest, { orderNo, couponId: Number(value) }] : rest;
+    });
+  }
+
+  const influencerCoupons = (couponsQuery.data ?? []).filter((c: any) => c.isActive && c.salespersonId);
   const tutoringCourses = (coursesQuery.data ?? []).filter((c: any) => c.category === "tutoring");
   const activeBooks = (booksQuery.data ?? []).filter((b: any) => b.isActive);
 
@@ -84,6 +94,21 @@ export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orde
                 {p.shipping > 0 && <span className="text-slate-400">（運費 {fmt(p.shipping)}）</span>}
               </div>
             </div>
+
+            {p.influencerEligible && (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <label className="text-slate-600">用了哪組網紅碼</label>
+                <select className="input !w-48" value={p.couponId ?? ""} onChange={(e) => setOrderCoupon(p.orderNo, e.target.value)}>
+                  <option value="">沒有用網紅碼</option>
+                  {influencerCoupons.map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-slate-400">線上課程、書籍改照售價分，網紅佣金 5%</span>
+              </div>
+            )}
 
             <table className="data-table w-full">
               <thead>
@@ -190,7 +215,7 @@ export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orde
               className="btn-primary"
               disabled={!plans.length || hasError || record.isPending || preview.isFetching}
               onClick={async () => {
-                const r = await record.mutateAsync({ orderNos, overrides });
+                const r = await record.mutateAsync({ orderNos, overrides, coupons: orderCoupons });
                 onDone(`已入帳 ${r.orders} 張訂單（每張一筆記錄），共 ${fmt(r.total)}。`);
               }}
             >

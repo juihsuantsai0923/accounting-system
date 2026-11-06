@@ -1,5 +1,5 @@
 import { eq, inArray } from "drizzle-orm";
-import { books, coupons, courses, revenueSettings, revenueTeamMembers, teachers } from "./schema";
+import { books, coupons, courses, revenueSettings, revenueTeamMembers, salespeople, teachers } from "./schema";
 
 /**
  * 分潤規則（2026-11-07 起）：
@@ -7,6 +7,7 @@ import { books, coupons, courses, revenueSettings, revenueTeamMembers, teachers 
  *   行政費比例 adminFeeRate（預設 20%）：線上課程、小班家教、試上、書籍都抽這個比例，依團隊名單的權重分
  *   剩下的全部給主理老師（線上課程＝課程的老師；書籍＝依科目對應的老師）
  * 例外：書籍另有自己的公積金比例 bookReserveRate（預設 35%）；行事曆（筆記本）全部留公積金。
+ * 網紅碼（2026-11-07 起的訂單）：線上課程、書籍改以售價算公積金、行政費與網紅佣金 5%，家長折扣由主理老師那份吸收；小班家教、行事曆不算。
  * 金額一律用實際收到的錢（不再用原價×折數−優惠碼推算）。
  */
 export interface RevenueSettingsRow {
@@ -18,6 +19,24 @@ export interface RevenueSettingsRow {
 }
 
 export const DEFAULT_REVENUE_SETTINGS = { reserveRate: 0.1, adminFeeRate: 0.2, bookReserveRate: 0.35 };
+
+export const INFLUENCER_RATE = 0.05;
+/** 台灣時間 2026-11-07 00:00：這之後下的官網訂單才能選網紅碼 */
+export const INFLUENCER_START = Date.UTC(2026, 10, 6, 16);
+
+/** 這筆收入用了網紅碼：listPrice＝售價（公積金、行政費、佣金都用它算），salespersonId＝佣金給誰 */
+export interface InfluencerSplit {
+  listPrice: number;
+  salespersonId: number;
+}
+
+/** 網紅碼要有對應的推銷者才能記佣金；沒有就用代碼建一位，名字可到管理面板改 */
+export async function ensureCouponSalesperson(db: any, coupon: { id: number; code: string; salespersonId?: number | null }) {
+  if (coupon.salespersonId) return coupon.salespersonId;
+  const [s] = await db.insert(salespeople).values({ name: coupon.code, note: "網紅優惠碼" }).returning();
+  await db.update(coupons).set({ salespersonId: s.id }).where(eq(coupons.id, coupon.id));
+  return s.id as number;
+}
 
 /** 讀取分潤設定，資料庫裡還沒有任何設定列時自動建立一列預設值 */
 export async function getRevenueSettings(db: any): Promise<RevenueSettingsRow> {
@@ -71,28 +90,32 @@ export async function teacherIdForSubject(db: any, name: string): Promise<number
  *   公積金＋行政費＝金額 ×（公積金比例＋行政費比例），四捨五入；主理老師拿剩下的
  *   行政費＝金額 × 行政費比例，依團隊名單的權重分（無條件捨去），零頭跟公積金一起留在公司
  */
-export async function splitWithAdminFee(db: any, amount: number, ownerTeacherId: number, ownerSuffix: string, reserveRate?: number) {
+export async function splitWithAdminFee(db: any, amount: number, ownerTeacherId: number, ownerSuffix: string, reserveRate?: number, influencer?: InfluencerSplit) {
   const settings = await getRevenueSettings(db);
   const members: { recipientType: RecipientType; recipientId: number; weight: number }[] = await db.select().from(revenueTeamMembers);
-  const companyPart = Math.round(amount * ((reserveRate ?? settings.reserveRate) + settings.adminFeeRate));
-  const ownerShare = amount - companyPart;
-  const adminFee = Math.round(amount * settings.adminFeeRate);
+  const base = influencer?.listPrice ?? amount;
+  const companyPart = Math.round(base * ((reserveRate ?? settings.reserveRate) + settings.adminFeeRate));
+  const commission = influencer ? Math.round(base * INFLUENCER_RATE) : 0;
+  const ownerShare = amount - companyPart - commission;
+  if (ownerShare < 0) throw new CourseIncomeError("折扣後實收不夠分給公積金、行政費與網紅佣金，請檢查金額");
+  const adminFee = Math.round(base * settings.adminFeeRate);
   const totalWeight = members.reduce((s, m) => s + m.weight, 0);
   const distributions: DistItem[] = [{ type: "teacher", recipientId: ownerTeacherId, amount: ownerShare, role: "owner", itemNameSuffix: ownerSuffix }];
   for (const m of members)
     distributions.push({ type: m.recipientType, recipientId: m.recipientId, amount: Math.floor((adminFee * m.weight) / totalWeight + 1e-9), role: "team_bonus", itemNameSuffix: "行政費" });
+  if (influencer) distributions.push({ type: "salesperson", recipientId: influencer.salespersonId, amount: commission, role: "referral", itemNameSuffix: "網紅佣金" });
   const totalDistributed = distributions.reduce((s, d) => s + d.amount, 0);
   return { settings, ownerShare, adminFee, distributions, totalDistributed, reserve: amount - totalDistributed };
 }
 
 /** 線上課程：實收金額照「公積金＋行政費＋主理老師」分 */
-export async function computeCourseIncome(db: any, input: { courseId: number; amount: number }) {
+export async function computeCourseIncome(db: any, input: { courseId: number; amount: number; influencer?: InfluencerSplit }) {
   const [course] = await db.select().from(courses).where(eq(courses.id, input.courseId)).limit(1);
   if (!course) throw new CourseIncomeError("找不到課程");
   if (course.category === "tutoring") throw new CourseIncomeError("這門課是小班家教，請改用「小班家教」入帳");
   if (!course.teacherId) throw new CourseIncomeError("這門課還沒有對應的主理老師");
   if (!Number.isInteger(input.amount) || input.amount <= 0) throw new CourseIncomeError("實收金額必須是大於 0 的整數");
-  const split = await splitWithAdminFee(db, input.amount, course.teacherId, "課程主理分潤");
+  const split = await splitWithAdminFee(db, input.amount, course.teacherId, "課程主理分潤", undefined, input.influencer);
   return { course, amount: input.amount, ...split };
 }
 
@@ -141,11 +164,11 @@ export async function computeBookIncome(db: any, input: { lines: BookLineInput[]
   });
   const subtotal = detail.reduce((s, d) => s + d.subtotal, 0);
 
-  let coupon: { id: number; code: string; discountRate: number } | null = null;
+  let coupon: { id: number; code: string; discountRate: number; salespersonId: number | null } | null = null;
   if (input.couponId) {
     const [c] = await db.select().from(coupons).where(eq(coupons.id, input.couponId)).limit(1);
     if (!c) throw new CourseIncomeError("找不到這個優惠碼");
-    coupon = { id: c.id, code: c.code, discountRate: c.discountRate };
+    coupon = { id: c.id, code: c.code, discountRate: c.discountRate, salespersonId: c.salespersonId };
   }
   const discount = coupon ? Math.round(subtotal * coupon.discountRate) : 0;
   const suggestedAmount = subtotal - discount;
@@ -160,27 +183,37 @@ export async function computeBookIncome(db: any, input: { lines: BookLineInput[]
  *   認不出科目的書 → 全部留公積金
  * 回傳每一組的金額與分潤，給 combineIncome 合成一筆。
  */
-export async function splitBookIncome(db: any, detail: { bookId: number; name: string; kind: string; subtotal: number; qty: number }[], amount: number) {
+export async function splitBookIncome(
+  db: any,
+  detail: { bookId: number; name: string; kind: string; subtotal: number; qty: number }[],
+  amount: number,
+  influencer?: { listTotal: number; salespersonId: number }
+) {
   const total = detail.reduce((s, d) => s + d.subtotal, 0);
   const settings = await getRevenueSettings(db);
-  const groups = new Map<string, { label: string; categoryId: number; items: string[]; amount: number; teacherId: number | null }>();
+  const groups = new Map<string, { label: string; categoryId: number; items: string[]; amount: number; list: number; teacherId: number | null }>();
   let left = amount;
+  let listLeft = influencer?.listTotal ?? 0;
   for (let i = 0; i < detail.length; i++) {
     const d = detail[i];
     const share = i === detail.length - 1 ? left : total ? Math.round((amount * d.subtotal) / total) : 0;
     left -= share;
+    const listShare = !influencer ? 0 : i === detail.length - 1 ? listLeft : total ? Math.round((influencer.listTotal * d.subtotal) / total) : 0;
+    listLeft -= listShare;
     const subject = d.kind === "notebook" ? null : subjectOf(d.name);
     const teacherId = subject ? await teacherIdForSubject(db, d.name) : null;
     const key = teacherId ? `t${teacherId}` : "reserve";
-    const g = groups.get(key) ?? { label: subject && teacherId ? `${subject.subject}書籍` : "書籍", categoryId: d.bookId, items: [], amount: 0, teacherId };
+    const g = groups.get(key) ?? { label: subject && teacherId ? `${subject.subject}書籍` : "書籍", categoryId: d.bookId, items: [], amount: 0, list: 0, teacherId };
     g.items.push(d.qty > 1 ? `${d.name}×${d.qty}` : d.name);
     g.amount += share;
+    g.list += listShare;
     groups.set(key, g);
   }
   const parts = [];
   for (const g of groups.values()) {
     if (g.amount <= 0) continue;
-    const distributions = g.teacherId ? (await splitWithAdminFee(db, g.amount, g.teacherId, "書籍分潤", settings.bookReserveRate)).distributions : [];
+    const split = influencer ? { listPrice: g.list, salespersonId: influencer.salespersonId } : undefined;
+    const distributions = g.teacherId ? (await splitWithAdminFee(db, g.amount, g.teacherId, "書籍分潤", settings.bookReserveRate, split)).distributions : [];
     const name = g.items.join("、");
     parts.push({ name, categoryId: g.categoryId, amount: g.amount, distributions, personalLabel: g.teacherId ? name : g.label });
   }
