@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, staffProcedure } from "../trpc";
 import { advancePayments, advanceCategories, teacherLedger, salespersonLedger, expenseTypes, mainLedger, shippers, webOrders } from "../schema";
-import { and, count, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNotNull, ne } from "drizzle-orm";
 import { getCurrentBalance, recalculateBalance, writeAudit } from "../ledger";
 import { getLatestBalance } from "./mainLedger";
 import { money, sendLine } from "../lineNotify";
@@ -79,6 +79,52 @@ async function addToSubLedger(db: any, userId: number, advance: AdvanceRow) {
     personalBalance: currentBalance + advance.amount,
     editedBy: userId,
   } as any);
+}
+
+/** 誰的代墊：老師、出貨員只能是自己；管理員要指定 */
+function resolveRecipient(ctx: any, input: { recipientType?: "teacher" | "salesperson" | "shipper"; recipientId?: number }) {
+  let { recipientType, recipientId } = input;
+  if (ctx.user.role === "shipper_self") {
+    if (!ctx.user.linkedShipperId) throw new TRPCError({ code: "FORBIDDEN", message: "這個帳號還沒綁定出貨員，請找管理員設定" });
+    recipientType = "shipper";
+    recipientId = ctx.user.linkedShipperId;
+  } else if (ctx.user.role === "teacher_self") {
+    if (!ctx.user.linkedTeacherId) throw new TRPCError({ code: "FORBIDDEN", message: "這個帳號還沒綁定教師，請找管理員設定" });
+    recipientType = "teacher";
+    recipientId = ctx.user.linkedTeacherId;
+  } else if (ctx.user.role !== "super_admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "只有系統管理員可以修改帳目" });
+  }
+  if (!recipientType || !recipientId) throw new TRPCError({ code: "BAD_REQUEST", message: "請選擇代墊的人" });
+  return { recipientType, recipientId };
+}
+
+/** 寫入一筆代墊：要審核的先待審，不用審核的直接進子記帳表 */
+async function insertAdvance(
+  ctx: any,
+  who: { recipientType: string; recipientId: number },
+  f: { itemName?: string; orderName?: string; orderNo?: string; buyer?: string; category: string; note?: string },
+  amount: number
+) {
+  const review = needsReview(ctx.user);
+  const [advance] = await ctx.db
+    .insert(advancePayments)
+    .values({
+      ...who,
+      itemName: f.itemName || advanceItemName(f),
+      orderName: f.orderName || null,
+      orderNo: f.orderNo || null,
+      buyer: f.buyer || null,
+      category: f.category,
+      amount,
+      reviewStatus: review ? "pending" : "approved",
+      note: f.note || null,
+      editedBy: ctx.user.id,
+    })
+    .returning();
+  if (!review) await addToSubLedger(ctx.db, ctx.user.id, advance);
+  await writeAudit(ctx.db, ctx.user.id, "create", "advancePayment", advance.id, null, advance);
+  return advance;
 }
 
 async function notifyReview(ctx: any, a: { orderName?: string | null; buyer?: string | null; category?: string | null; amount: number }, title: string) {
@@ -181,49 +227,43 @@ export const advancePaymentsRouter = router({
   create: protectedProcedure
     .input(z.object({ recipientType: recipientTypeSchema.optional(), recipientId: z.number().optional(), ...fieldsInput }))
     .mutation(async ({ ctx, input }) => {
-      const db = ctx.db;
-      let recipientType = input.recipientType;
-      let recipientId = input.recipientId;
-      if (ctx.user.role === "shipper_self") {
-        if (!ctx.user.linkedShipperId) throw new TRPCError({ code: "FORBIDDEN", message: "這個帳號還沒綁定出貨員，請找管理員設定" });
-        recipientType = "shipper";
-        recipientId = ctx.user.linkedShipperId;
-      } else if (ctx.user.role === "teacher_self") {
-        if (!ctx.user.linkedTeacherId) throw new TRPCError({ code: "FORBIDDEN", message: "這個帳號還沒綁定教師，請找管理員設定" });
-        recipientType = "teacher";
-        recipientId = ctx.user.linkedTeacherId;
-      } else if (ctx.user.role !== "super_admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "只有系統管理員可以修改帳目" });
-      }
-      if (!recipientType || !recipientId) throw new TRPCError({ code: "BAD_REQUEST", message: "請選擇代墊的人" });
+      const who = resolveRecipient(ctx, input);
       const amount = parseInt(input.amount, 10);
       if (amount <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "代墊金額必須大於 0" });
 
-      await ensureCategory(db, input.category);
-      const itemName = input.itemName || advanceItemName(input);
-      const review = needsReview(ctx.user);
-      const [advance] = await db
-        .insert(advancePayments)
-        .values({
-          recipientType,
-          recipientId,
-          itemName,
-          orderName: input.orderName || null,
-          orderNo: input.orderNo || null,
-          buyer: input.buyer || null,
-          category: input.category,
-          amount,
-          reviewStatus: review ? "pending" : "approved",
-          note: input.note || null,
-          editedBy: ctx.user.id,
-        })
-        .returning();
-
-      if (review) await notifyReview(ctx, advance, "有新的代墊等你審核");
-      else await addToSubLedger(db, ctx.user.id, advance);
-
-      await writeAudit(db, ctx.user.id, "create", "advancePayment", advance.id, null, advance);
+      await ensureCategory(ctx.db, input.category);
+      const advance = await insertAdvance(ctx, who, input, amount);
+      if (advance.reviewStatus === "pending") await notifyReview(ctx, advance, "有新的代墊等你審核");
       return advance;
+    }),
+
+  /** 一次寄很多件：勾選多張訂單一起登記，每張一筆代墊，同一類別；要審核的只發一則 LINE */
+  createBatch: protectedProcedure
+    .input(
+      z.object({
+        recipientType: recipientTypeSchema.optional(),
+        recipientId: z.number().optional(),
+        category: fieldsInput.category,
+        note: fieldsInput.note,
+        // 每筆約 4 次資料庫操作，留在 Worker 單次請求的查詢上限內
+        items: z
+          .array(z.object({ orderName: fieldsInput.orderName, orderNo: fieldsInput.orderNo, buyer: fieldsInput.buyer, amount: fieldsInput.amount }))
+          .min(1, "請至少勾選一張訂單")
+          .max(150, "一次最多 150 筆"),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const who = resolveRecipient(ctx, input);
+      const amounts = input.items.map((i) => parseInt(i.amount, 10));
+      if (amounts.some((a) => a <= 0)) throw new TRPCError({ code: "BAD_REQUEST", message: "每筆代墊金額都要大於 0" });
+
+      await ensureCategory(ctx.db, input.category);
+      for (let i = 0; i < input.items.length; i++) {
+        await insertAdvance(ctx, who, { ...input.items[i], category: input.category, note: input.note }, amounts[i]);
+      }
+      const total = amounts.reduce((s, a) => s + a, 0);
+      if (needsReview(ctx.user)) await notifyReview(ctx, { category: input.category, amount: total, orderName: `共 ${amounts.length} 筆` }, "有新的代墊等你審核");
+      return { count: amounts.length, total };
     }),
 
   update: protectedProcedure.input(z.object({ id: z.number(), ...fieldsInput })).mutation(async ({ ctx, input }) => {
@@ -304,6 +344,13 @@ export const advancePaymentsRouter = router({
     if (!["super_admin", "shipper_self"].includes(ctx.user.role)) return [];
     const since = Date.now() - 120 * 86400_000;
     const rows = await ctx.db.select().from(webOrders).where(gte(webOrders.orderedAt, since)).orderBy(desc(webOrders.orderedAt));
+    // 這張訂單已經登記過哪些類別（退回的不算），多筆登記時提醒不要重複
+    const existing = await ctx.db
+      .select({ orderNo: advancePayments.orderNo, category: advancePayments.category })
+      .from(advancePayments)
+      .where(and(isNotNull(advancePayments.orderNo), ne(advancePayments.reviewStatus, "rejected")));
+    const registered = new Map<string, string[]>();
+    for (const a of existing) if (a.orderNo && a.category) registered.set(a.orderNo, [...(registered.get(a.orderNo) ?? []), a.category]);
     return rows
       .filter((o: any) => o.tab !== "cancelled")
       .map((o: any) => {
@@ -311,7 +358,7 @@ export const advancePaymentsRouter = router({
         try {
           items = (JSON.parse(o.items) as { name: string }[]).map((i) => i.name);
         } catch {}
-        return { orderNo: o.orderNo as string, orderedAt: o.orderedAt as number, buyer: o.buyer as string, items };
+        return { orderNo: o.orderNo as string, orderedAt: o.orderedAt as number, buyer: o.buyer as string, items, registeredCategories: registered.get(o.orderNo) ?? [] };
       });
   }),
 

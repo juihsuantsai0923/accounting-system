@@ -198,3 +198,37 @@ test("多品項訂單：子記帳表的原始金額是該品項的金額，不�
     { o: 1000, p: 650 },
   ]);
 });
+
+test("多筆代墊：一次登記多張訂單，出貨員待審核、管理員直接算數，金額不對整批不寫", async () => {
+  const { admin, shipper, sqlite } = setup();
+  const now = Date.now();
+  sqlite.prepare("INSERT INTO teachers (id, name, created_at, updated_at) VALUES (903, '老師丁', ?, ?)").run(now, now);
+  const order = sqlite.prepare("INSERT INTO web_orders (order_no, ordered_at, buyer, total, status_label, tab, items, synced_at) VALUES (?, ?, ?, 100, '訂單完成', 'completed', '[]', ?)");
+  order.run("A1", now, "甲", now);
+  order.run("A2", now, "乙", now);
+
+  const items = [
+    { orderName: "#A1", orderNo: "A1", buyer: "甲", amount: "60" },
+    { orderName: "#A2", orderNo: "A2", buyer: "乙", amount: "65" },
+  ];
+  await assert.rejects(shipper.advancePayments.createBatch({ category: "運費", items: [items[0], { ...items[1], amount: "0" }] }), /都要大於 0/);
+  assert.equal((await shipper.advancePayments.list({})).length, 0);
+
+  assert.deepEqual(await shipper.advancePayments.createBatch({ category: "運費", note: "同批寄出", items }), { count: 2, total: 125 });
+  const rows = await shipper.advancePayments.list({});
+  assert.deepEqual(rows.map((a) => [a.itemName, a.amount, a.reviewStatus, a.note]).reverse(), [
+    ["甲_運費", 60, "pending", "同批寄出"],
+    ["乙_運費", 65, "pending", "同批寄出"],
+  ]);
+  assert.deepEqual((await shipper.advancePayments.orderOptions()).find((o) => o.orderNo === "A1")?.registeredCategories, ["運費"]);
+
+  // 退回的訂單可以重新登記，不算登記過
+  await admin.advancePayments.review({ id: rows[0].id, approve: false });
+  assert.deepEqual((await shipper.advancePayments.orderOptions()).find((o) => o.orderNo === "A2")?.registeredCategories, []);
+
+  // 管理員替老師登記：不用審核，直接進子記帳表
+  await admin.advancePayments.createBatch({ recipientType: "teacher", recipientId: 903, category: "運費", items });
+  const balances = sqlite.prepare("SELECT personal_balance b FROM teacher_ledger WHERE teacher_id = 903 ORDER BY id").all();
+  assert.deepEqual(balances, [{ b: 60 }, { b: 125 }]);
+  await assert.rejects(admin.advancePayments.createBatch({ category: "運費", items }), /請選擇代墊的人/);
+});

@@ -3,6 +3,7 @@ import { trpc } from "../lib/trpc";
 import { useAuth, canManage } from "../lib/auth";
 import { downloadTextFile } from "../lib/download";
 import SearchableSelect from "../components/SearchableSelect";
+import BatchOrderPicker, { BATCH_LIMIT } from "../components/BatchOrderPicker";
 
 function fmt(n: number) {
   return `NT$${n.toLocaleString()}`;
@@ -53,6 +54,7 @@ export default function AdvancePaymentsPage() {
   };
 
   const createMutation = trpc.advancePayments.create.useMutation({ onSuccess: invalidateAll });
+  const createBatchMutation = trpc.advancePayments.createBatch.useMutation({ onSuccess: invalidateAll });
   const updateMutation = trpc.advancePayments.update.useMutation({ onSuccess: invalidateAll });
   const settleMutation = trpc.advancePayments.settle.useMutation({ onSuccess: invalidateAll });
   const settleShipperMutation = trpc.advancePayments.settleShipper.useMutation({ onSuccess: invalidateAll });
@@ -64,6 +66,8 @@ export default function AdvancePaymentsPage() {
   const [recipientId, setRecipientId] = useState<number | "">("");
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [batchMode, setBatchMode] = useState(false);
+  const [picked, setPicked] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -118,6 +122,7 @@ export default function AdvancePaymentsPage() {
 
   function startEdit(a: any) {
     setEditingId(a.id);
+    setBatchMode(false);
     setError(null);
     const known = categories.some((c) => c.name === a.category);
     setForm({
@@ -135,6 +140,23 @@ export default function AdvancePaymentsPage() {
   function resetForm() {
     setEditingId(null);
     setForm(emptyForm);
+    setPicked({});
+  }
+
+  async function handleBatchSubmit(category: string) {
+    const entries = Object.entries(picked);
+    if (!entries.length) return setError("請至少勾選一張訂單");
+    if (entries.length > BATCH_LIMIT) return setError(`一次最多 ${BATCH_LIMIT} 筆，請分批登記`);
+    if (entries.some(([, amount]) => !(parseInt(amount, 10) > 0))) return setError("每張勾選的訂單都要填金額");
+    if (!isSelf && !recipientId) return setError(`請選擇${TYPE_LABELS[recipientType]}`);
+    const items = entries.map(([orderNo, amount]) => {
+      const o = orders.find((x) => x.orderNo === orderNo)!;
+      return { orderName: orderLabel(o).slice(0, 200), orderNo, buyer: o.buyer, amount };
+    });
+    const who = isSelf ? {} : { recipientType, recipientId: Number(recipientId) };
+    await createBatchMutation.mutateAsync({ ...who, category, note: form.note || undefined, items });
+    resetForm();
+    utils.advancePayments.categories.invalidate();
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -142,6 +164,14 @@ export default function AdvancePaymentsPage() {
     setError(null);
     const category = form.category === NEW_CATEGORY ? form.newCategory.trim() : form.category;
     if (!category) return setError("請選類別，或打新的類別名稱");
+    if (batchMode) {
+      try {
+        await handleBatchSubmit(category);
+      } catch (err: any) {
+        return setError(err?.message ?? "儲存失敗");
+      }
+      return;
+    }
     if (!form.orderName.trim() && !form.buyer.trim()) return setError("請填訂單名稱或下訂人");
     const fields = {
       orderName: form.orderName || undefined,
@@ -167,7 +197,8 @@ export default function AdvancePaymentsPage() {
     }
   }
 
-  const saving = createMutation.isPending || updateMutation.isPending;
+  const saving = createMutation.isPending || createBatchMutation.isPending || updateMutation.isPending;
+  const pickedCount = Object.keys(picked).length;
   const myOwed = approved.reduce((s, a) => s + a.amount, 0);
   const colCount = 9 + (isAdmin ? 1 : 0) + (canWrite ? 1 : 0);
 
@@ -196,7 +227,23 @@ export default function AdvancePaymentsPage() {
 
       {isAdmin && pending.length > 0 && (
         <div className="card space-y-3 border-l-4 border-amber-500">
-          <h2 className="font-medium text-brand-700">等你審核的代墊（{pending.length}）</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-medium text-brand-700">等你審核的代墊（{pending.length}）</h2>
+            {pending.length > 1 && (
+              <button
+                className="btn-secondary"
+                disabled={reviewMutation.isPending}
+                onClick={() =>
+                  confirm(`${pending.length} 筆代墊（${fmt(pending.reduce((s, a) => s + a.amount, 0))}）全部通過？`) &&
+                  run(async () => {
+                    for (const a of pending) await reviewMutation.mutateAsync({ id: a.id, approve: true });
+                  })
+                }
+              >
+                全部通過
+              </button>
+            )}
+          </div>
           <ul className="divide-y divide-slate-100">
             {pending.map((a) => (
               <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
@@ -258,7 +305,19 @@ export default function AdvancePaymentsPage() {
 
       {canWrite && (
         <form onSubmit={handleSubmit} className="card space-y-4">
-          <h2 className="font-medium text-brand-700">{editingId ? `修改代墊 #${editingId}` : "新增代墊"}</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-medium text-brand-700">{editingId ? `修改代墊 #${editingId}` : "新增代墊"}</h2>
+            {!editingId && orders.length > 0 && (
+              <div className="flex gap-2">
+                <button className={batchMode ? "btn-secondary" : "btn-primary"} type="button" onClick={() => setBatchMode(false)}>
+                  單筆
+                </button>
+                <button className={batchMode ? "btn-primary" : "btn-secondary"} type="button" onClick={() => setBatchMode(true)}>
+                  複選訂單
+                </button>
+              </div>
+            )}
+          </div>
           {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             {isAdmin && !editingId && (
@@ -289,6 +348,8 @@ export default function AdvancePaymentsPage() {
                 </div>
               </>
             )}
+            {!batchMode && (
+              <>
             <div className="md:col-span-2">
               <label className="label">{orders.length ? "訂單名稱（可選官網訂單或自己打）" : "訂單名稱"}</label>
               <input
@@ -310,6 +371,8 @@ export default function AdvancePaymentsPage() {
               <label className="label">下訂人</label>
               <input className="input" value={form.buyer} onChange={(e) => setForm({ ...form, buyer: e.target.value })} placeholder="姓名" />
             </div>
+              </>
+            )}
             <div>
               <label className="label">類別</label>
               <select className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
@@ -330,24 +393,29 @@ export default function AdvancePaymentsPage() {
                 />
               )}
             </div>
-            <div>
-              <label className="label">金額</label>
-              <input
-                className="input"
-                inputMode="numeric"
-                value={form.amount}
-                onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^\d]/g, "") })}
-                required
-              />
-            </div>
+            {!batchMode && (
+              <div>
+                <label className="label">金額</label>
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  value={form.amount}
+                  onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^\d]/g, "") })}
+                  required
+                />
+              </div>
+            )}
             <div className="md:col-span-2">
               <label className="label">備註（選填）</label>
               <input className="input" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
             </div>
           </div>
+          {batchMode && (
+            <BatchOrderPicker orders={orders} category={form.category === NEW_CATEGORY ? form.newCategory.trim() : form.category} picked={picked} onChange={setPicked} />
+          )}
           <div className="flex gap-2">
             <button className="btn-primary" type="submit" disabled={saving}>
-              {saving ? "儲存中..." : editingId ? "儲存修改" : "新增代墊"}
+              {saving ? "儲存中..." : editingId ? "儲存修改" : batchMode ? `新增 ${pickedCount} 筆代墊` : "新增代墊"}
             </button>
             {editingId && (
               <button className="btn-secondary" type="button" onClick={resetForm}>

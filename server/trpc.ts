@@ -11,6 +11,7 @@ const SHIPPER_PATHS = new Set([
   "auth.logout",
   "advancePayments.list",
   "advancePayments.create",
+  "advancePayments.createBatch",
   "advancePayments.update",
   "advancePayments.delete",
   "advancePayments.categories",
