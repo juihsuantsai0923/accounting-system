@@ -213,9 +213,39 @@ function TeachersAdmin() {
   );
 }
 
+/** 推銷者一列：可以改本名，網紅碼用灰字標在下面 */
+function SalespersonRow({ person, code, onDelete }: { person: any; code?: string; onDelete: () => void }) {
+  const utils = trpc.useUtils();
+  const [name, setName] = useState(person.name === code ? "" : person.name);
+  const update = trpc.salespeople.update.useMutation({ onSuccess: () => utils.salespeople.list.invalidate() });
+  const changed = name.trim() !== "" && name.trim() !== person.name;
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+      <div>
+        <input className="input !w-48" placeholder="輸入本名" value={name} onChange={(e) => setName(e.target.value)} />
+        {code && <div className="mt-1 text-xs text-slate-400">{code}</div>}
+      </div>
+      <div className="flex gap-2">
+        {changed && (
+          <button className="btn-primary" disabled={update.isPending} onClick={() => update.mutate({ id: person.id, name: name.trim() })}>
+            儲存
+          </button>
+        )}
+        <button className="btn-danger" onClick={onDelete}>
+          刪除
+        </button>
+      </div>
+      {update.error && <div className="w-full text-xs text-red-600">{update.error.message}</div>}
+    </li>
+  );
+}
+
 function SalespeopleAdmin() {
   const utils = trpc.useUtils();
   const listQuery = trpc.salespeople.list.useQuery();
+  const couponsQuery = trpc.coupons.list.useQuery();
+  const shippersQuery = trpc.shippers.list.useQuery();
+  const shipperNames = new Set((shippersQuery.data ?? []).map((s: any) => s.name));
   const createMutation = trpc.salespeople.create.useMutation({
     onSuccess: () => {
       utils.salespeople.list.invalidate();
@@ -254,14 +284,16 @@ function SalespeopleAdmin() {
       </form>
       {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
       <ul className="divide-y divide-slate-100">
-        {(listQuery.data ?? []).map((s) => (
-          <li key={s.id} className="flex items-center justify-between py-2 text-sm">
-            <span>{s.name}</span>
-            <button className="btn-danger" onClick={() => confirm(`確定刪除推銷者「${s.name}」？`) && deleteMutation.mutate({ id: s.id })}>
-              刪除
-            </button>
-          </li>
-        ))}
+        {(listQuery.data ?? [])
+          .filter((s) => !shipperNames.has(s.name))
+          .map((s) => (
+            <SalespersonRow
+              key={s.id}
+              person={s}
+              code={(couponsQuery.data ?? []).find((c: any) => c.salespersonId === s.id)?.code}
+              onDelete={() => confirm(`確定刪除推銷者「${s.name}」？`) && deleteMutation.mutate({ id: s.id })}
+            />
+          ))}
       </ul>
     </Section>
   );

@@ -15,6 +15,8 @@ export function PeopleDirectory({ kind }: Props) {
   const teachersQuery = trpc.teachers.list.useQuery(undefined, { enabled: kind === "teacher" });
   const salespeopleQuery = trpc.salespeople.list.useQuery(undefined, { enabled: kind === "salesperson" });
   const shippersQuery = trpc.shippers.list.useQuery(undefined, { enabled: kind === "salesperson" });
+  const couponsQuery = trpc.coupons.list.useQuery(undefined, { enabled: kind === "salesperson" });
+  const codeOf = (id: number) => (couponsQuery.data ?? []).find((c: any) => c.salespersonId === id)?.code;
   const [query, setQuery] = useState("");
 
   // 出貨員的分潤記在同名推銷者的子記帳表，在「人員」裡單獨列，不混在推銷者名單
@@ -33,11 +35,12 @@ export function PeopleDirectory({ kind }: Props) {
             <button
               key={p.id}
               type="button"
-              className="btn-secondary justify-start truncate"
+              className="btn-secondary !flex-col !items-start truncate"
               onClick={() => navigate(`/${kind}/${p.id}`)}
               title={p.name}
             >
-              {p.name}
+              <span>{p.name === codeOf(p.id) ? "未填本名" : p.name}</span>
+              {codeOf(p.id) && <span className="text-xs font-normal text-slate-400">{codeOf(p.id)}</span>}
             </button>
           ))}
           {filtered.length === 0 && <div className="col-span-full text-center text-slate-400 py-6">查無符合的{label}</div>}

@@ -120,6 +120,7 @@ export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orde
                   {influencerCoupons.map((c: any) => (
                     <option key={c.id} value={c.id}>
                       {c.code}
+                      {nameOf("salesperson", c.salespersonId) !== c.code ? `（${nameOf("salesperson", c.salespersonId)}）` : ""}
                     </option>
                   ))}
                 </select>
