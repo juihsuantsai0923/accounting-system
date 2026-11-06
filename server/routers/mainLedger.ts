@@ -13,7 +13,7 @@ import {
 } from "../schema";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { recalculateBalance, recalculateMainLedgerBalance, reserveTrail, writeAudit } from "../ledger";
-import { computeCourseIncome, computeTutoringIncome, computeBookIncome, splitBookIncome, CourseIncomeError, type DistItem } from "../revenueCalc";
+import { computeCourseIncome, computeTutoringIncome, computeTrialIncome, computeBookIncome, splitBookIncome, CourseIncomeError, type DistItem } from "../revenueCalc";
 import { combineIncome, type IncomePart } from "../combineIncome";
 import { mergeNote } from "../noteFormat";
 
@@ -266,7 +266,7 @@ export const mainLedgerRouter = router({
       }
     }),
 
-  /** 線上課程入帳：實收金額照「公積金＋行政費（團隊三人平分）＋主理老師」分 */
+  /** 線上課程入帳：實收金額照「公積金＋行政費（依權重分配）＋主理老師」分 */
   createCourseIncome: staffProcedure
     .input(z.object({ courseId: z.number(), amount: z.number().int(), note: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
@@ -338,6 +338,38 @@ export const mainLedgerRouter = router({
         (d) => d.itemNameSuffix
       );
       return { entry, reserve: c.reserve };
+    }),
+
+  /** 試上：只計算、不寫入，給前端預覽分配 */
+  previewTrialIncome: staffProcedure
+    .input(z.object({ courseId: z.number(), amount: z.number().int() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        return await computeTrialIncome(ctx.db, input);
+      } catch (e) {
+        mapCourseIncomeError(e);
+      }
+    }),
+
+  /** 試上入帳：選試上的課，跟小班家教一樣照「公積金＋行政費＋主理老師」分 */
+  createTrialIncome: staffProcedure
+    .input(z.object({ courseId: z.number(), student: z.string().trim().min(1), amount: z.number().int(), note: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      let result;
+      try {
+        result = await computeTrialIncome(ctx.db, input);
+      } catch (e) {
+        mapCourseIncomeError(e);
+      }
+      const itemName = `試上_${input.student}`;
+      const entry = await insertIncome(
+        ctx.db,
+        ctx.user.id,
+        { itemName, categoryId: result!.course.id, categoryName: "試上", amount: result!.amount, note: input.note, incomeSource: "trial" },
+        result!.distributions,
+        (d) => `${itemName}（${d.itemNameSuffix}）`
+      );
+      return { entry, breakdown: result };
     }),
 
   /** 書籍：只計算、不寫入，帶出定價小計、優惠碼折扣與建議實收金額 */

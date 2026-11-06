@@ -24,7 +24,7 @@ interface DistRow {
 }
 
 type EntryType = "income" | "expense" | "advance";
-type IncomeMode = "course" | "tutoring" | "book" | "other";
+type IncomeMode = "course" | "tutoring" | "book" | "trial" | "other";
 
 interface BookLine {
   key: string;
@@ -123,6 +123,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
   const createCourseIncomeMutation = trpc.mainLedger.createCourseIncome.useMutation({ onSuccess: invalidateAll });
   const createTutoringIncomeMutation = trpc.mainLedger.createTutoringIncome.useMutation({ onSuccess: invalidateAll });
   const createBookIncomeMutation = trpc.mainLedger.createBookIncome.useMutation({ onSuccess: invalidateAll });
+  const createTrialIncomeMutation = trpc.mainLedger.createTrialIncome.useMutation({ onSuccess: invalidateAll });
   const deleteMutation = trpc.mainLedger.delete.useMutation({ onSuccess: invalidateAll });
   const recalcMutation = trpc.mainLedger.recalculateBalances.useMutation({ onSuccess: invalidateAll });
 
@@ -168,6 +169,11 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
   const [tutorRows, setTutorRows] = useState<TutorRow[]>([]);
   const [tutorSaving, setTutorSaving] = useState(false);
   const [tutorNote, setTutorNote] = useState<NoteParts>({});
+  const [trialCourseId, setTrialCourseId] = useState<number | "">("");
+  const [trialStudent, setTrialStudent] = useState("");
+  const [trialAmount, setTrialAmount] = useState("");
+  const [trialNote, setTrialNote] = useState<NoteParts>({});
+  const [trialSaving, setTrialSaving] = useState(false);
 
   // 書籍（含筆記本）
   const [bookLines, setBookLines] = useState<BookLine[]>([]);
@@ -236,12 +242,14 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
   const tutoringCourses = (coursesQuery.data ?? []).filter((c: any) => c.category === "tutoring");
   const onlineCourses = (coursesQuery.data ?? []).filter((c: any) => c.category !== "tutoring");
   const tutoringRate = settingsQuery.data?.settings.reserveRate ?? 0.1;
+  const adminRate = settingsQuery.data?.settings.adminFeeRate ?? 0.2;
   const courseById = new Map((coursesQuery.data ?? []).map((c: any) => [c.id, c]));
   const tutorCalc = tutorRows.map((r) => {
     const course: any = courseById.get(r.courseId);
     const amount = parseInt(r.amount || "0", 10) || 0;
-    const reserve = Math.round(amount * tutoringRate);
-    return { ...r, course, amountNum: amount, reserve, teacherShare: amount - reserve };
+    const adminFee = Math.round(amount * adminRate);
+    const reserve = Math.round(amount * (tutoringRate + adminRate)) - adminFee;
+    return { ...r, course, amountNum: amount, reserve, adminFee, teacherShare: amount - reserve - adminFee };
   });
   const tutorTotal = tutorCalc.reduce((s, r) => s + r.amountNum, 0);
   const tutorReserveTotal = tutorCalc.reduce((s, r) => s + r.reserve, 0);
@@ -278,6 +286,39 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
       setError(err?.message ?? "入帳失敗");
     } finally {
       setTutorSaving(false);
+    }
+  }
+
+  // ── 試上：選試上的課，跟小班家教一樣分 ──
+  const trialCourse = tutoringCourses.find((c: any) => c.id === trialCourseId);
+  const trialAmountNum = parseInt(trialAmount || "0", 10);
+  const trialCompany = Math.round(trialAmountNum * (tutoringRate + adminRate));
+  const trialAdmin = Math.round(trialAmountNum * adminRate);
+
+  async function handleConfirmTrial() {
+    setError(null);
+    setSuccessMsg(null);
+    if (!trialCourse) return setError("請選擇試上的課");
+    if (!trialCourse.teacherId) return setError(`「${trialCourse.name}」還沒設定主理教師，請先到管理面板「課程管理」設定`);
+    if (!trialStudent.trim()) return setError("請填試上學生");
+    if (trialAmountNum <= 0) return setError("請填實收金額");
+    setTrialSaving(true);
+    try {
+      await createTrialIncomeMutation.mutateAsync({
+        courseId: trialCourse.id,
+        student: trialStudent.trim(),
+        amount: trialAmountNum,
+        note: formatNote(trialNote),
+      });
+      setSuccessMsg(`試上已入帳 ${fmt(trialAmountNum)}：公積金 ${fmt(trialCompany - trialAdmin)}、行政費 ${fmt(trialAdmin)}，${nameOf("teacher", trialCourse.teacherId)} ${fmt(trialAmountNum - trialCompany)}。`);
+      setTrialCourseId("");
+      setTrialStudent("");
+      setTrialAmount("");
+      setTrialNote({});
+    } catch (err: any) {
+      setError(err?.message ?? "入帳失敗");
+    } finally {
+      setTrialSaving(false);
     }
   }
 
@@ -668,6 +709,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                   <option value="course">線上課程</option>
                   <option value="tutoring">小班家教</option>
                   <option value="book">書籍（含筆記本）</option>
+                  <option value="trial">試上</option>
                   <option value="other">其他收入</option>
                 </select>
               </div>
@@ -676,7 +718,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
               <>
               <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
                 線上課程：填實際收到的錢。公積金 {Math.round((settingsQuery.data?.settings.reserveRate ?? 0.1) * 1000) / 10}%、行政費{" "}
-                {Math.round((settingsQuery.data?.settings.adminFeeRate ?? 0.1) * 1000) / 10}%（團隊三人平分），其餘給課程的主理老師。
+                {Math.round((settingsQuery.data?.settings.adminFeeRate ?? 0.1) * 1000) / 10}%（依權重分配），其餘給課程的主理老師。
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -761,7 +803,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
               ) : incomeMode === "tutoring" ? (
                 <>
                   <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
-                    小班家教：填實際收到的學費。{Math.round(tutoringRate * 1000) / 10}% 留給公積金，其餘全部計入該課程主理教師的子記帳表；不套折數、優惠碼、推廣抽成與團隊獎金。
+                    小班家教：填實際收到的學費。公積金 {Math.round(tutoringRate * 1000) / 10}%、行政費 {Math.round(adminRate * 1000) / 10}%，其餘全部計入該課程主理教師的子記帳表；不套折數、優惠碼、推廣抽成與團隊獎金。
                   </div>
                   <div>
                     <label className="label">課程（可以複選，一次勾好幾門）</label>
@@ -814,6 +856,42 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                   <NoteFields value={tutorNote} onChange={setTutorNote} fields={["buyer", "order", "memo"]} />
                   <button type="button" className="btn-primary" onClick={handleConfirmTutoring} disabled={tutorSaving}>
                     {tutorSaving ? "入帳中..." : "確認入帳"}
+                  </button>
+                </>
+              ) : incomeMode === "trial" ? (
+                <>
+                  <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+                    試上：填實際收到的錢。公積金 {Math.round(tutoringRate * 1000) / 10}%、行政費 {Math.round(adminRate * 1000) / 10}%，其餘給試上課程的主理老師
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="label">試上哪門課</label>
+                      <select className="input" value={trialCourseId} onChange={(e) => setTrialCourseId(e.target.value ? Number(e.target.value) : "")}>
+                        <option value="">請選擇</option>
+                        {tutoringCourses.map((c: any) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">試上學生</label>
+                      <input className="input" value={trialStudent} onChange={(e) => setTrialStudent(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="label">實收金額</label>
+                      <input className="input" inputMode="numeric" value={trialAmount} onChange={(e) => setTrialAmount(e.target.value.replace(/[^\d]/g, ""))} />
+                    </div>
+                  </div>
+                  {trialCourse && trialAmountNum > 0 && (
+                    <div className="text-sm text-slate-700">
+                      公積金 {fmt(trialCompany - trialAdmin)}・行政費 {fmt(trialAdmin)}・{trialCourse.teacherId ? nameOf("teacher", trialCourse.teacherId) : "主理教師"} {fmt(trialAmountNum - trialCompany)}
+                    </div>
+                  )}
+                  <NoteFields value={trialNote} onChange={setTrialNote} fields={["buyer", "memo"]} />
+                  <button type="button" className="btn-primary" onClick={handleConfirmTrial} disabled={trialSaving}>
+                    {trialSaving ? "入帳中..." : "確認入帳"}
                   </button>
                 </>
               ) : incomeMode === "book" ? (
@@ -956,11 +1034,13 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
                         required
                       >
                         <option value="">請選擇</option>
-                        {(incomeTypesQuery.data ?? []).map((c: any) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
+                        {(incomeTypesQuery.data ?? [])
+                          .filter((c: any) => c.name !== "試上")
+                          .map((c: any) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
                       </select>
                       <p className="text-xs text-slate-400 mt-1">收入類別清單可至管理面板「收入類型管理」新增。</p>
                     </div>

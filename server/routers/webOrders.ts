@@ -162,7 +162,7 @@ export const webOrdersRouter = router({
       .filter((e: any) => {
         if (claimed.has(e.id) || e.createdAt < firstOrderAt) return false;
         // 只看會在官網賣的東西：課程、小班家教、書籍；利息等其他收入不列
-        if (e.incomeSource) return e.incomeSource !== "other";
+        if (e.incomeSource) return e.incomeSource !== "other" && e.incomeSource !== "trial";
         return courseNames.has(e.categoryName) || e.categoryName.includes("行事曆");
       })
       .map((e: any) => ({ id: e.id, createdAt: e.createdAt, itemName: e.itemName, categoryName: e.categoryName, amount: e.amount, note: e.note }));

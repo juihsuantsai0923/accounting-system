@@ -101,7 +101,7 @@ test("行事曆全部留公積金，不分給任何人", async () => {
   assert.equal(cal.amount, 300);
   assert.deepEqual(cal.distributions, []);
   assert.equal(cal.reserve, 300);
-  assert.equal(owner(part(p, "科學班物理衝刺班 2026-2027")), 24300);
+  assert.equal(owner(part(p, "科學班物理衝刺班 2026-2027")), 21600);
 });
 
 test("運費算進書籍那筆、全部留公積金", async () => {
@@ -140,8 +140,8 @@ test("書籍公積金比例改了，舊帳重算只改老師那一份、分配�
   assert.equal(t("SELECT personal_amount a FROM teacher_ledger WHERE id = 1").a, 2145);
   assert.equal(t("SELECT amount a FROM ledger_distribution WHERE id = 1").a, 2145);
   assert.equal(t("SELECT SUM(amount) a FROM ledger_distribution WHERE recipient_id <> 2 AND main_ledger_id = 1").a, 220); // 行政費不動
-  // 蔡睿軒：書籍 2145＋行政費 110＋家教 24300
-  assert.equal(t("SELECT personal_balance b FROM teacher_ledger WHERE teacher_id = 2 ORDER BY id DESC LIMIT 1").b, 2145 + 110 + 24300);
+  // 蔡睿軒：書籍 2145＋行政費 110＋家教 21600＋家教行政費 900
+  assert.equal(t("SELECT personal_balance b FROM teacher_ledger WHERE teacher_id = 2 ORDER BY id DESC LIMIT 1").b, 2145 + 110 + 21600 + 900);
   assert.equal((await recalcBookShares(db)).changes.length, 0); // 重跑不會再改
 });
 
@@ -155,4 +155,25 @@ test("帳務檢查：系統外刪掉一筆記錄會被抓到", async () => {
   const issues = await checkIntegrity(db);
   assert.ok(issues.some((t) => t.includes("帳本有 1 筆存的餘額")));
   assert.ok(issues.some((t) => t.includes("掛在已刪除的帳本記錄上")));
+});
+
+test("行政費依權重分：4 : 3.5 : 1.5 : 1，出貨員記在推銷者子帳，零頭留公積金", async () => {
+  const { computeTutoringIncome, computeTrialIncome } = await import("../server/revenueCalc");
+  const { db, sqlite } = makeDb();
+  sqlite.exec("UPDATE revenue_settings SET admin_fee_rate = 0.2");
+  sqlite.exec("INSERT INTO salespeople (id, name, is_active, created_at, updated_at) VALUES (1, '出貨員', 1, 0, 0)");
+  sqlite.exec("DELETE FROM revenue_team_members");
+  sqlite.exec(
+    "INSERT INTO revenue_team_members (recipient_type, recipient_id, weight, created_at) VALUES ('teacher', 2, 4, 0), ('teacher', 4, 3.5, 0), ('teacher', 3, 1.5, 0), ('salesperson', 1, 1, 0)"
+  );
+  const t = await computeTutoringIncome(db, { courseId: 4, amount: 27000 });
+  assert.equal(t.teacherShare, 18900);
+  assert.equal(t.reserve, 2700);
+  assert.deepEqual(adminFee(t), [2160, 1890, 810, 540]);
+  assert.equal(t.distributions.at(-1)!.type, "salesperson");
+
+  const trial = await computeTrialIncome(db, { courseId: 7, amount: 999 });
+  assert.equal(trial.teacherShare, 699);
+  assert.deepEqual(adminFee(trial), [80, 70, 30, 20]);
+  assert.equal(trial.reserve, 999 - 699 - 200);
 });

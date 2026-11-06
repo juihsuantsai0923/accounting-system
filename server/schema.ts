@@ -177,7 +177,7 @@ export const mainLedger = sqliteTable("main_ledger", {
   balance: integer("balance").notNull(),
   note: text("note"),
   attachmentUrl: text("attachment_url"),
-  // 收入來源：course（線上課程）／tutoring（小班家教）／book（書籍）／other（其他收入）；舊資料與支出為 null
+  // 收入來源：course（線上課程）／tutoring（小班家教）／book（書籍）／trial（試上）／other（其他收入）；舊資料與支出為 null
   incomeSource: text("income_source"),
   // 一筆記錄含多個項目時（例如一張官網訂單有多門課＋書）：JSON [{ source, name, categoryId, amount }]，報表依這個拆開算
   breakdown: text("breakdown"),
@@ -293,6 +293,7 @@ export const revenueTeamMembers = sqliteTable("revenue_team_members", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   recipientType: text("recipient_type").notNull(), // teacher | salesperson
   recipientId: integer("recipient_id").notNull(),
+  weight: real("weight").notNull().default(1), // 行政費分配權重（依權重比例分）
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
 });
 

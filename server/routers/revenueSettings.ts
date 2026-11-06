@@ -45,5 +45,5 @@ export const revenueSettingsRouter = router({
     if (!input.dryRun && r.changes.length) await writeAudit(ctx.db, ctx.user.id, "recalcBookShares", "teacherLedger", 0, null, r);
     return r;
   }),
-  // 團隊名單（行政費平分的三位）固定不改，不再提供新增／移除
+  // 團隊名單（行政費依權重分配）固定不改，不再提供新增／移除
 });

@@ -18,8 +18,8 @@ export interface AEntry {
   createdAt: number;
 }
 
-export const SOURCE_LABELS: Record<string, string> = { course: "線上課程", tutoring: "小班家教", book: "書籍", other: "其他收入" };
-const SOURCES = ["course", "tutoring", "book", "other"] as const;
+export const SOURCE_LABELS: Record<string, string> = { course: "線上課程", tutoring: "小班家教", book: "書籍", trial: "試上", other: "其他收入" };
+const SOURCES = ["course", "tutoring", "book", "trial", "other"] as const;
 
 export const isRevenue = (e: AEntry) => e.type === "income" && !NON_REVENUE_CATEGORIES.has(e.categoryName);
 export const isSalary = (e: AEntry) => e.salaryTeacherId != null || e.salarySalespersonId != null;
@@ -84,7 +84,7 @@ export interface PnL {
 }
 
 export function emptyPnL(): PnL {
-  return { revenue: 0, bySource: { course: 0, tutoring: 0, book: 0, other: 0 }, teacherShare: 0, gross: 0, expenses: 0, byExpense: {}, net: 0, nonRevenue: 0 };
+  return { revenue: 0, bySource: { course: 0, tutoring: 0, book: 0, trial: 0, other: 0 }, teacherShare: 0, gross: 0, expenses: 0, byExpense: {}, net: 0, nonRevenue: 0 };
 }
 
 export function buildPnL(entries: AEntry[], grain: Grain, courseNames: Set<string>) {

@@ -486,7 +486,7 @@ export function MonthlyReportButton({
   }, [entries, timeline]);
   const [month, setMonth] = useState("");
   const selected = month || months[0] || thisMonthKey();
-  const SOURCE: Record<string, string> = { course: "線上課程", tutoring: "小班家教", book: "書籍", other: "其他收入", mixed: "多項收入" };
+  const SOURCE: Record<string, string> = { course: "線上課程", tutoring: "小班家教", book: "書籍", trial: "試上", other: "其他收入", mixed: "多項收入" };
 
   function download() {
     const rows = entries.filter((e) => monthOf(e.createdAt) === selected);

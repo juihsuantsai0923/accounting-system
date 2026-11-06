@@ -661,9 +661,9 @@ function RevenueSettingsAdmin() {
   return (
     <Section title="分潤設定">
       <div className="text-sm text-slate-600 space-y-1">
-        <p>線上課程：公積金 {reserve}%＋行政費 {admin}%（{members.length} 人平分），其餘 {rest(reserve)}% 給主理老師。</p>
+        <p>線上課程：公積金 {reserve}%＋行政費 {admin}%（依權重分配），其餘 {rest(reserve)}% 給主理老師。</p>
         <p>書籍：公積金 {bookReserve}%＋行政費 {admin}%，其餘 {rest(bookReserve)}% 依科目給該科老師。行事曆：全部留公積金。</p>
-        <p>小班家教：公積金 {reserve}%，其餘給主理老師，不抽行政費。</p>
+        <p>小班家教、試上：公積金 {reserve}%＋行政費 {admin}%，其餘 {rest(reserve)}% 給主理老師。</p>
       </div>
       <form
         className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end"
@@ -692,7 +692,7 @@ function RevenueSettingsAdmin() {
           <input className="input" inputMode="decimal" value={form.bookReserveRatePercent} onChange={(e) => setForm({ ...form, bookReserveRatePercent: e.target.value })} />
         </div>
         <div>
-          <label className="label">行政費比例（%，團隊平分）</label>
+          <label className="label">行政費比例（%，依權重分配）</label>
           <input className="input" inputMode="decimal" value={form.adminFeeRatePercent} onChange={(e) => setForm({ ...form, adminFeeRatePercent: e.target.value })} />
         </div>
         <button className="btn-primary" type="submit" disabled={updateMutation.isPending || recalcMutation.isPending}>
@@ -700,7 +700,7 @@ function RevenueSettingsAdmin() {
         </button>
       </form>
       {msg && <div className="text-sm text-slate-600">{msg}</div>}
-      <p className="text-xs text-slate-400">行政費平分給：{members.map(nameOf).join("、") || "（沒有名單）"}（名單固定，不在這裡修改）</p>
+      <p className="text-xs text-slate-400">行政費依權重分給：{members.map((m: any) => `${nameOf(m)} ${m.weight}`).join("、") || "（沒有名單）"}（名單固定，不在這裡修改）</p>
     </Section>
   );
 }

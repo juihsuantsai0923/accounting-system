@@ -38,11 +38,11 @@ export const TAX = {
   salaryWithholdRate: 0.05,
 };
 
-export const SERVICE_SOURCES = new Set(["tutoring", "course", "other"]);
+export const SERVICE_SOURCES = new Set(["tutoring", "course", "trial", "other"]);
 
 export interface MonthSales {
   month: string;
-  service: number; // 勞務：小班家教、線上課程、其他收入
+  service: number; // 勞務：小班家教、線上課程、試上、其他收入
   goods: number; // 貨物：書籍、行事曆
   total: number;
   overThreshold: boolean; // 已達營業稅起徵點（要辦稅籍登記）

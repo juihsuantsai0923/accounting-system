@@ -16,7 +16,7 @@ export const salespersonLedgerRouter = router({
     }
     return withBuyer(
       ctx.db,
-      await ctx.db.select().from(salespersonLedger).where(eq(salespersonLedger.salespersonId, salespersonId)).orderBy(asc(salespersonLedger.id))
+      await ctx.db.select().from(salespersonLedger).where(eq(salespersonLedger.salespersonId, salespersonId)).orderBy(asc(salespersonLedger.createdAt), asc(salespersonLedger.id))
     );
   }),
 

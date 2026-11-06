@@ -20,6 +20,7 @@ const SOURCE_SERIES = [
   { key: "course", label: "線上課程", color: "#2a78d6" },
   { key: "tutoring", label: "小班家教", color: "#eb6834" },
   { key: "book", label: "書籍", color: "#1baf7a" },
+  { key: "trial", label: "試上", color: "#7c5cd6" },
   { key: "other", label: "其他收入", color: "#eda100" },
 ] as const;
 export const BRAND = "#1e3a6e";
@@ -121,7 +122,7 @@ export function MonthlyRevenueChart({ entries, courseNames }: { entries: LedgerR
     const byMonth = new Map<string, Record<string, number>>();
     for (const e of revenue) {
       const m = monthOf(e.createdAt);
-      const row = byMonth.get(m) ?? { course: 0, tutoring: 0, book: 0, other: 0 };
+      const row = byMonth.get(m) ?? { course: 0, tutoring: 0, book: 0, trial: 0, other: 0 };
       for (const p of expandIncome(e, courseNames)) row[p.source] = (row[p.source] ?? 0) + p.amount;
       byMonth.set(m, row);
     }
@@ -132,8 +133,8 @@ export function MonthlyRevenueChart({ entries, courseNames }: { entries: LedgerR
     const [ly, lm] = months[months.length - 1].split("-").map(Number);
     while (y < ly || (y === ly && mo <= lm)) {
       const key = `${y}-${String(mo).padStart(2, "0")}`;
-      const row = byMonth.get(key) ?? { course: 0, tutoring: 0, book: 0, other: 0 };
-      out.push({ month: key, ...row, total: row.course + row.tutoring + row.book + row.other });
+      const row = byMonth.get(key) ?? { course: 0, tutoring: 0, book: 0, trial: 0, other: 0 };
+      out.push({ month: key, ...row, total: row.course + row.tutoring + row.book + row.trial + row.other });
       mo += 1;
       if (mo > 12) {
         mo = 1;

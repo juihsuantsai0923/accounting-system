@@ -2,11 +2,11 @@ import { eq, inArray } from "drizzle-orm";
 import { books, coupons, courses, revenueSettings, revenueTeamMembers, teachers } from "./schema";
 
 /**
- * 分潤規則（2026-10-29 起簡化成兩個參數）：
- *   公積金比例 reserveRate（預設 10%）：線上課程、書籍、小班家教都先留這個比例給公司
- *   行政費比例 adminFeeRate（預設 10%）：線上課程、書籍另外抽這個比例，固定由團隊名單上的三位平分
+ * 分潤規則（2026-11-07 起）：
+ *   公積金比例 reserveRate（預設 10%）：線上課程、小班家教、試上都先留這個比例給公司
+ *   行政費比例 adminFeeRate（預設 20%）：線上課程、小班家教、試上、書籍都抽這個比例，依團隊名單的權重分
  *   剩下的全部給主理老師（線上課程＝課程的老師；書籍＝依科目對應的老師）
- * 例外：書籍另有自己的公積金比例 bookReserveRate（2026-11-02 起預設 25%）；行事曆（筆記本）全部留公積金；小班家教不抽行政費。
+ * 例外：書籍另有自己的公積金比例 bookReserveRate（預設 35%）；行事曆（筆記本）全部留公積金。
  * 金額一律用實際收到的錢（不再用原價×折數−優惠碼推算）。
  */
 export interface RevenueSettingsRow {
@@ -17,7 +17,7 @@ export interface RevenueSettingsRow {
   bookReserveRate: number;
 }
 
-export const DEFAULT_REVENUE_SETTINGS = { reserveRate: 0.1, adminFeeRate: 0.1, bookReserveRate: 0.25 };
+export const DEFAULT_REVENUE_SETTINGS = { reserveRate: 0.1, adminFeeRate: 0.2, bookReserveRate: 0.35 };
 
 /** 讀取分潤設定，資料庫裡還沒有任何設定列時自動建立一列預設值 */
 export async function getRevenueSettings(db: any): Promise<RevenueSettingsRow> {
@@ -67,21 +67,22 @@ export async function teacherIdForSubject(db: any, name: string): Promise<number
 }
 
 /**
- * 有行政費的分法（線上課程、書籍）：
+ * 有行政費的分法（線上課程、小班家教、試上、書籍）：
  *   公積金＋行政費＝金額 ×（公積金比例＋行政費比例），四捨五入；主理老師拿剩下的
- *   行政費＝金額 × 行政費比例，團隊名單每人平分（無條件捨去），零頭跟公積金一起留在公司
+ *   行政費＝金額 × 行政費比例，依團隊名單的權重分（無條件捨去），零頭跟公積金一起留在公司
  */
 export async function splitWithAdminFee(db: any, amount: number, ownerTeacherId: number, ownerSuffix: string, reserveRate?: number) {
   const settings = await getRevenueSettings(db);
-  const members: { recipientType: RecipientType; recipientId: number }[] = await db.select().from(revenueTeamMembers);
+  const members: { recipientType: RecipientType; recipientId: number; weight: number }[] = await db.select().from(revenueTeamMembers);
   const companyPart = Math.round(amount * ((reserveRate ?? settings.reserveRate) + settings.adminFeeRate));
   const ownerShare = amount - companyPart;
   const adminFee = Math.round(amount * settings.adminFeeRate);
-  const perPerson = members.length ? Math.floor(adminFee / members.length) : 0;
+  const totalWeight = members.reduce((s, m) => s + m.weight, 0);
   const distributions: DistItem[] = [{ type: "teacher", recipientId: ownerTeacherId, amount: ownerShare, role: "owner", itemNameSuffix: ownerSuffix }];
-  for (const m of members) distributions.push({ type: m.recipientType, recipientId: m.recipientId, amount: perPerson, role: "team_bonus", itemNameSuffix: "行政費" });
+  for (const m of members)
+    distributions.push({ type: m.recipientType, recipientId: m.recipientId, amount: Math.floor((adminFee * m.weight) / totalWeight + 1e-9), role: "team_bonus", itemNameSuffix: "行政費" });
   const totalDistributed = distributions.reduce((s, d) => s + d.amount, 0);
-  return { settings, ownerShare, adminFee, perPerson, distributions, totalDistributed, reserve: amount - totalDistributed };
+  return { settings, ownerShare, adminFee, distributions, totalDistributed, reserve: amount - totalDistributed };
 }
 
 /** 線上課程：實收金額照「公積金＋行政費＋主理老師」分 */
@@ -95,10 +96,7 @@ export async function computeCourseIncome(db: any, input: { courseId: number; am
   return { course, amount: input.amount, ...split };
 }
 
-/**
- * 小班家教：不抽行政費。
- *   公積金 = 實收金額 × 公積金比例（四捨五入到元）；主理教師 = 實收金額 − 公積金
- */
+/** 小班家教：實收金額照「公積金＋行政費＋主理老師」分 */
 export async function computeTutoringIncome(db: any, input: { courseId: number; amount: number }) {
   const [course] = await db.select().from(courses).where(eq(courses.id, input.courseId)).limit(1);
   if (!course) throw new CourseIncomeError("找不到課程");
@@ -106,13 +104,18 @@ export async function computeTutoringIncome(db: any, input: { courseId: number; 
   if (!course.teacherId) throw new CourseIncomeError("此課程尚未設定主理教師");
   if (!Number.isInteger(input.amount) || input.amount <= 0) throw new CourseIncomeError("實收金額必須是大於 0 的整數");
 
-  const settings = await getRevenueSettings(db);
-  const reserve = Math.round(input.amount * settings.reserveRate);
-  const teacherShare = input.amount - reserve;
-  const distributions: DistItem[] = [
-    { type: "teacher", recipientId: course.teacherId, amount: teacherShare, role: "owner", itemNameSuffix: "小班家教分潤" },
-  ];
-  return { course, amount: input.amount, reserveRate: settings.reserveRate, reserve, teacherShare, distributions };
+  const split = await splitWithAdminFee(db, input.amount, course.teacherId, "小班家教分潤");
+  return { course, amount: input.amount, reserveRate: split.settings.reserveRate, reserve: split.reserve, teacherShare: split.ownerShare, adminFee: split.adminFee, distributions: split.distributions };
+}
+
+/** 試上：選試上的課，實收金額跟小班家教一樣照「公積金＋行政費＋主理老師」分 */
+export async function computeTrialIncome(db: any, input: { courseId: number; amount: number }) {
+  const [course] = await db.select().from(courses).where(eq(courses.id, input.courseId)).limit(1);
+  if (!course) throw new CourseIncomeError("找不到課程");
+  if (!course.teacherId) throw new CourseIncomeError("此課程尚未設定主理教師");
+  if (!Number.isInteger(input.amount) || input.amount <= 0) throw new CourseIncomeError("實收金額必須是大於 0 的整數");
+  const split = await splitWithAdminFee(db, input.amount, course.teacherId, "試上分潤");
+  return { course, amount: input.amount, reserve: split.reserve, teacherShare: split.ownerShare, adminFee: split.adminFee, distributions: split.distributions };
 }
 
 export interface BookLineInput {

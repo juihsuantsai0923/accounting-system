@@ -66,7 +66,7 @@ function PnLSection({ entries, courseNames }: { entries: AEntry[]; courseNames: 
   const cmp = (r: Row, k: string) => (r.goodWhenUp === false ? Math.abs(r.get(pnl(k))) : r.get(pnl(k)));
   const rows: Row[] = [
     { label: "營業收入", get: (p) => p.revenue, strong: true },
-    ...(["tutoring", "course", "book", "other"] as const).map((s) => ({ label: SOURCE_LABELS[s], get: (p: PnL) => p.bySource[s], indent: true })),
+    ...(["tutoring", "course", "book", "trial", "other"] as const).map((s) => ({ label: SOURCE_LABELS[s], get: (p: PnL) => p.bySource[s], indent: true })),
     { label: "老師／推銷者分潤", get: (p) => -p.teacherShare, goodWhenUp: false },
     { label: "留給公司（毛利）", get: (p) => p.gross, strong: true },
     { label: "公帳支出", get: (p) => -p.expenses, goodWhenUp: false },

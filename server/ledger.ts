@@ -28,11 +28,11 @@ export function ledgerDelta(row: { sourceType: string; type: string; personalAmo
  * 兩種環境——D1 的連線只能在每次請求時透過 env 綁定取得，沒辦法在模組載入時就建立好。
  */
 
-/** 重新計算某位教師/推銷者的所有子記帳表累計餘額（依 id 排序累加） */
+/** 重新計算某位教師/推銷者的所有子記帳表累計餘額（依時間排序累加） */
 export async function recalculateBalance(db: any, recipientType: Recipient, recipientId: number) {
   const tbl = table(recipientType) as typeof teacherLedger;
   const col = idColumn(recipientType) as typeof teacherLedger.teacherId;
-  const rows = await db.select().from(tbl).where(eq(col, recipientId)).orderBy(asc(tbl.id));
+  const rows = await db.select().from(tbl).where(eq(col, recipientId)).orderBy(asc(tbl.createdAt), asc(tbl.id));
 
   let running = 0;
   for (const row of rows) {
@@ -68,7 +68,7 @@ export async function recalculateMainLedgerBalance(db: any) {
 export async function getCurrentBalance(db: any, recipientType: Recipient, recipientId: number): Promise<number> {
   const tbl = table(recipientType) as typeof teacherLedger;
   const col = idColumn(recipientType) as typeof teacherLedger.teacherId;
-  const rows = await db.select().from(tbl).where(eq(col, recipientId)).orderBy(asc(tbl.id));
+  const rows = await db.select().from(tbl).where(eq(col, recipientId)).orderBy(asc(tbl.createdAt), asc(tbl.id));
   if (rows.length === 0) return 0;
   return rows[rows.length - 1].personalBalance;
 }

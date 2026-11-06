@@ -213,6 +213,7 @@ export const createTableStatements: string[] = [
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     recipient_type TEXT NOT NULL,
     recipient_id INTEGER NOT NULL,
+    weight REAL NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL
   )`,
 
