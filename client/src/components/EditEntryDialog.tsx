@@ -16,9 +16,11 @@ export default function EditEntryDialog({ entry, onClose }: { entry: any; onClos
   const [itemName, setItemName] = useState<string>(entry.itemName);
   const [note, setNote] = useState<NoteParts>(parseNote(entry.note));
   const [amount, setAmount] = useState<string>(String(entry.amount));
+  const [unpaid, setUnpaid] = useState<string>(String(entry.unpaidAmount ?? 0));
   const update = trpc.mainLedger.update.useMutation({
     onSuccess: () => {
       utils.mainLedger.list.invalidate();
+      utils.mainLedger.unpaidList.invalidate();
       utils.reports.invalidate();
       utils.webOrders.reconcile.invalidate();
       onClose();
@@ -39,6 +41,7 @@ export default function EditEntryDialog({ entry, onClose }: { entry: any; onClos
             itemName,
             note: formatNote(note) ?? "",
             amount: amountLocked ? undefined : parseInt(amount || "0", 10),
+            unpaidAmount: entry.type === "income" ? parseInt(unpaid || "0", 10) : undefined,
           });
         }}
       >
@@ -72,6 +75,13 @@ export default function EditEntryDialog({ entry, onClose }: { entry: any; onClos
             {amountLocked && <p className="text-xs text-slate-400 mt-1">這筆有分給個人，金額不能直接改；要改請刪除後重新入帳。</p>}
           </div>
         </div>
+
+        {entry.type === "income" && (
+          <div className="sm:w-1/3">
+            <label className="label">未入帳金額（家長還沒付）</label>
+            <input className="input" inputMode="numeric" value={unpaid} onChange={(e) => setUnpaid(e.target.value.replace(/[^\d]/g, ""))} />
+          </div>
+        )}
 
         <NoteFields value={note} onChange={setNote} fields={[...fields]} />
 

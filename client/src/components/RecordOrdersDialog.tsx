@@ -17,7 +17,11 @@ export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orde
   const utils = trpc.useUtils();
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [orderCoupons, setOrderCoupons] = useState<{ orderNo: string; couponId: number }[]>([]);
-  const preview = trpc.webOrders.previewRecord.useQuery({ orderNos, overrides, coupons: orderCoupons });
+  const [received, setReceived] = useState<Record<string, string>>({});
+  const partials = Object.entries(received)
+    .filter(([, v]) => parseInt(v || "0", 10) > 0)
+    .map(([orderNo, v]) => ({ orderNo, received: parseInt(v, 10) }));
+  const preview = trpc.webOrders.previewRecord.useQuery({ orderNos, overrides, coupons: orderCoupons, partials });
   const couponsQuery = trpc.coupons.list.useQuery();
   const teachers = trpc.teachers.list.useQuery();
   const salespeople = trpc.salespeople.list.useQuery();
@@ -27,6 +31,7 @@ export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orde
     onSuccess: () => {
       utils.webOrders.reconcile.invalidate();
       utils.mainLedger.list.invalidate();
+      utils.mainLedger.unpaidList.invalidate();
       utils.teacherLedger.invalidate();
       utils.salespersonLedger.invalidate();
       utils.reports.invalidate();
@@ -93,6 +98,18 @@ export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orde
                 {p.discount > 0 && <span className="text-slate-400">（折扣 {fmt(p.discount)}）</span>}
                 {p.shipping > 0 && <span className="text-slate-400">（運費 {fmt(p.shipping)}）</span>}
               </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <label className="text-slate-600">部分入帳：這次收到</label>
+              <input
+                className="input !w-32"
+                inputMode="numeric"
+                placeholder="全額"
+                value={received[p.orderNo] ?? ""}
+                onChange={(e) => setReceived((prev) => ({ ...prev, [p.orderNo]: e.target.value.replace(/[^\d]/g, "") }))}
+              />
+              {p.unpaidAmount > 0 && <span className="text-xs text-amber-700">還沒繳 {fmt(p.unpaidAmount)}，分潤照整張訂單算，公積金暫時吸收</span>}
             </div>
 
             {p.influencerEligible && (
@@ -215,7 +232,7 @@ export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orde
               className="btn-primary"
               disabled={!plans.length || hasError || record.isPending || preview.isFetching}
               onClick={async () => {
-                const r = await record.mutateAsync({ orderNos, overrides, coupons: orderCoupons });
+                const r = await record.mutateAsync({ orderNos, overrides, coupons: orderCoupons, partials });
                 onDone(`已入帳 ${r.orders} 張訂單（每張一筆記錄），共 ${fmt(r.total)}。`);
               }}
             >

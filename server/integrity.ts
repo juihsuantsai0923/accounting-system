@@ -22,8 +22,8 @@ export async function checkIntegrity(db: any) {
   if (badMain) issues.push(`帳本有 ${badMain} 筆存的餘額跟加總對不上（到「帳本」按「重新計算餘額」）`);
 
   const personal: { kind: string; rows: any[]; idOf: (r: any) => number }[] = [
-    { kind: "教師", rows: await db.select().from(teacherLedger).orderBy(asc(teacherLedger.id)), idOf: (r) => r.teacherId },
-    { kind: "推銷者", rows: await db.select().from(salespersonLedger).orderBy(asc(salespersonLedger.id)), idOf: (r) => r.salespersonId },
+    { kind: "教師", rows: await db.select().from(teacherLedger).orderBy(asc(teacherLedger.createdAt), asc(teacherLedger.id)), idOf: (r) => r.teacherId },
+    { kind: "推銷者", rows: await db.select().from(salespersonLedger).orderBy(asc(salespersonLedger.createdAt), asc(salespersonLedger.id)), idOf: (r) => r.salespersonId },
   ];
   let badPersonal = 0;
   for (const { rows, idOf } of personal) {

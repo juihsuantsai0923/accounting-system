@@ -11,7 +11,8 @@ import {
   advancePayments,
   users,
 } from "../schema";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { parseNote } from "../noteFormat";
 import { recalculateBalance, recalculateMainLedgerBalance, reserveTrail, writeAudit } from "../ledger";
 import { computeCourseIncome, computeTutoringIncome, computeTrialIncome, computeBookIncome, splitBookIncome, CourseIncomeError, type DistItem } from "../revenueCalc";
 import { combineIncome, type IncomePart } from "../combineIncome";
@@ -63,7 +64,7 @@ async function resolveCategoryName(db: any, type: "income" | "expense", category
 export async function insertIncome(
   db: any,
   userId: number,
-  entry: { itemName: string; categoryId: number; categoryName: string; amount: number; note?: string; incomeSource: string; breakdown?: string | null },
+  entry: { itemName: string; categoryId: number; categoryName: string; amount: number; note?: string; incomeSource: string; breakdown?: string | null; unpaidAmount?: number },
   distributions: DistItem[],
   personalItemName: (d: DistItem) => string
 ) {
@@ -126,6 +127,7 @@ export const mainLedgerRouter = router({
         note: mainLedger.note,
         attachmentUrl: mainLedger.attachmentUrl,
         incomeSource: mainLedger.incomeSource,
+        unpaidAmount: mainLedger.unpaidAmount,
         breakdown: mainLedger.breakdown,
         editedAt: mainLedger.editedAt,
         salaryTeacherId: expenseTypes.teacherId,
@@ -152,6 +154,28 @@ export const mainLedgerRouter = router({
 
   /** 現在的公積金（跟儀表板同一個數字），帳本表格上方顯示 */
   reserveNow: staffProcedure.query(async ({ ctx }) => (await reserveTrail(ctx.db)).current),
+
+  /** 部分入帳還沒收齊的訂單（儀表板提醒用） */
+  unpaidList: staffProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db.select().from(mainLedger).where(and(isNull(mainLedger.deletedAt), gt(mainLedger.unpaidAmount, 0))).orderBy(asc(mainLedger.createdAt));
+    return rows.map((e: any) => {
+      const n = parseNote(e.note);
+      return { id: e.id, buyer: n.buyer ?? e.itemName, orderNo: n.order ?? null, amount: e.amount, unpaidAmount: e.unpaidAmount, createdAt: e.createdAt };
+    });
+  }),
+
+  /** 家長補繳：未入帳金額減掉收到的錢 */
+  receivePayment: staffProcedure
+    .input(z.object({ id: z.number(), amount: z.number().int().positive("收款金額必須大於 0") }))
+    .mutation(async ({ ctx, input }) => {
+      const [before] = await ctx.db.select().from(mainLedger).where(eq(mainLedger.id, input.id)).limit(1);
+      if (!before || before.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "找不到這筆記錄" });
+      if (input.amount > before.unpaidAmount) throw new TRPCError({ code: "BAD_REQUEST", message: `這筆只剩 ${before.unpaidAmount} 元未入帳` });
+      const unpaidAmount = before.unpaidAmount - input.amount;
+      await ctx.db.update(mainLedger).set({ unpaidAmount, updatedAt: Date.now() }).where(eq(mainLedger.id, input.id));
+      await writeAudit(ctx.db, ctx.user.id, "receivePayment", "mainLedger", input.id, { unpaidAmount: before.unpaidAmount }, { unpaidAmount });
+      return { unpaidAmount };
+    }),
 
   create: staffProcedure
     .input(
@@ -444,12 +468,15 @@ export const mainLedgerRouter = router({
         itemName: z.string().trim().min(1, "項目名稱不能空白"),
         note: z.string().optional(),
         amount: z.number().int().positive("金額必須大於 0").optional(),
+        unpaidAmount: z.number().int().min(0).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const db = ctx.db;
       const [before] = await db.select().from(mainLedger).where(eq(mainLedger.id, input.id)).limit(1);
       if (!before || before.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "找不到這筆記錄" });
+      if (input.unpaidAmount !== undefined && (before.type !== "income" || input.unpaidAmount >= (input.amount ?? before.amount)))
+        throw new TRPCError({ code: "BAD_REQUEST", message: "未入帳金額要小於這筆收入的金額" });
       const amountChanged = input.amount !== undefined && input.amount !== before.amount;
       if (amountChanged) {
         const dists = await db.select().from(ledgerDistribution).where(eq(ledgerDistribution.mainLedgerId, input.id));
@@ -458,6 +485,7 @@ export const mainLedgerRouter = router({
       const now = Date.now();
       const patch: any = { itemName: input.itemName, note: input.note?.trim() || null, editedBy: ctx.user.id, editedAt: now, updatedAt: now };
       if (amountChanged) patch.amount = input.amount;
+      if (input.unpaidAmount !== undefined) patch.unpaidAmount = input.unpaidAmount;
       await db.update(mainLedger).set(patch).where(eq(mainLedger.id, input.id));
       if (amountChanged) await recalculateMainLedgerBalance(db);
       await writeAudit(db, ctx.user.id, "update", "mainLedger", input.id, before, { ...before, ...patch });

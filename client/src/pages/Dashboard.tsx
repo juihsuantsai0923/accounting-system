@@ -29,6 +29,45 @@ function toCsvClient(headers: string[], rows: (string | number)[][]) {
   return "﻿" + [headers.map(escape).join(","), ...rows.map((r) => r.map(escape).join(","))].join("\r\n");
 }
 
+/** 部分入帳提醒：誰的訂單還沒繳多少，收到錢時在這裡登記 */
+function UnpaidRow({ order }: { order: { id: number; buyer: string; orderNo: string | null; unpaidAmount: number } }) {
+  const utils = trpc.useUtils();
+  const [amount, setAmount] = useState("");
+  const receive = trpc.mainLedger.receivePayment.useMutation({
+    onSuccess: () => {
+      setAmount("");
+      utils.mainLedger.unpaidList.invalidate();
+      utils.mainLedger.list.invalidate();
+    },
+  });
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+      <span>
+        {order.orderNo ? `${order.orderNo} ` : ""}
+        {order.buyer} 還沒繳 <b>{fmt(order.unpaidAmount)}</b>
+      </span>
+      <span className="flex items-center gap-2">
+        <input
+          className="input !w-28"
+          inputMode="numeric"
+          placeholder="收到金額"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))}
+        />
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={!amount || receive.isPending}
+          onClick={() => receive.mutate({ id: order.id, amount: parseInt(amount, 10) })}
+        >
+          登記收款
+        </button>
+      </span>
+      {receive.error && <span className="w-full text-xs text-red-600">{receive.error.message}</span>}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   // 教師/推銷者本人帳號沒有母記帳表／全公司應付總覽的權限（後端也已經擋下來），
@@ -47,6 +86,7 @@ export default function Dashboard() {
   const advancesQuery = trpc.advancePayments.list.useQuery({ status: "unsettled" }, { enabled: !isSelfRole });
   const reconcileQuery = trpc.webOrders.reconcile.useQuery(undefined, { enabled: !isSelfRole });
   const pendingRequestsQuery = trpc.accountRequests.pendingCount.useQuery(undefined, { enabled: user?.role === "super_admin" });
+  const unpaidQuery = trpc.mainLedger.unpaidList.useQuery(undefined, { enabled: !!user && !["teacher_self", "salesperson_self", "shipper_self"].includes(user.role) });
   const receivable = reconcileQuery.data?.receivable;
   const reconcileIssues = (reconcileQuery.data?.orders ?? []).filter((o) =>
     ["missing", "probable", "mismatch", "matched_gross"].includes(o.result)
@@ -70,6 +110,8 @@ export default function Dashboard() {
   // 公積金＝公司帳上的錢扣掉還欠每個人的錢（含代墊）；有人被多付（餘額為負）會反過來加回公積金
   const netOwed = (overviewQuery.data ?? []).reduce((s, r) => s + r.totalBalance, 0) + shipperOwed;
   const reserveFund = currentBalance - netOwed;
+  const unpaidOrders = unpaidQuery.data ?? [];
+  const unpaidTotal = unpaidOrders.reduce((s, o) => s + o.unpaidAmount, 0);
 
   function handleExportOverviewCsv() {
     const csv = toCsvClient(
@@ -114,9 +156,19 @@ export default function Dashboard() {
         </Link>
       )}
 
+      {unpaidOrders.length > 0 && (
+        <div className="card border-l-4 border-amber-500 space-y-2">
+          <div className="text-sm text-amber-700">🔔 有 {unpaidOrders.length} 張訂單還沒收齊</div>
+          {unpaidOrders.map((o) => (
+            <UnpaidRow key={o.id} order={o} />
+          ))}
+        </div>
+      )}
+
       <div className="card border-l-4 border-gold-500">
-        <div className="text-sm text-slate-500">公積金（公司自己的錢）</div>
+        <div className="text-sm text-slate-500">公積金（公司自己的錢{unpaidTotal > 0 ? "，含未入帳" : ""}）</div>
         <div className={`text-3xl font-semibold mt-1 ${reserveFund < 0 ? "text-red-600" : "text-brand-700"}`}>{fmt(reserveFund)}</div>
+        {unpaidTotal > 0 && <div className="text-xs text-slate-500 mt-1">（未入帳 {fmt(unpaidTotal)}，家長還沒付，公積金暫時吸收）</div>}
         <div className="text-xs text-slate-400 mt-2">
           ＝ 帳本目前餘額 {fmt(currentBalance)} − 還欠所有人的錢 {fmt(netOwed)}
           {loanTotal > 0 && `（其中創始基金借款 ${fmt(loanTotal)}，要還給出資人）`}。

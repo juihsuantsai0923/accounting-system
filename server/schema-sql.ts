@@ -295,6 +295,7 @@ export const mainLedgerColumnMigrations: { column: string; statement: string }[]
   { column: "income_source", statement: `ALTER TABLE main_ledger ADD COLUMN income_source TEXT` },
   { column: "breakdown", statement: `ALTER TABLE main_ledger ADD COLUMN breakdown TEXT` },
   { column: "edited_at", statement: `ALTER TABLE main_ledger ADD COLUMN edited_at INTEGER` },
+  { column: "unpaid_amount", statement: `ALTER TABLE main_ledger ADD COLUMN unpaid_amount INTEGER NOT NULL DEFAULT 0` },
 ];
 
 export const userColumnMigrations: { column: string; statement: string }[] = [

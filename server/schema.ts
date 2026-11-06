@@ -182,6 +182,8 @@ export const mainLedger = sqliteTable("main_ledger", {
   incomeSource: text("income_source"),
   // 一筆記錄含多個項目時（例如一張官網訂單有多門課＋書）：JSON [{ source, name, categoryId, amount }]，報表依這個拆開算
   breakdown: text("breakdown"),
+  // 部分入帳：amount 記整張訂單，這裡是家長還沒付的部分（公積金暫時吸收）
+  unpaidAmount: integer("unpaid_amount").notNull().default(0),
   // 最後一次由人新增／編輯的時間（重算餘額不會動到它；updated_at 會被重算改掉，不能拿來顯示）
   editedAt: integer("edited_at"),
   editedBy: integer("edited_by"),

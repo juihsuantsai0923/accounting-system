@@ -104,6 +104,7 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
   // 應付總覽只給財務人員（教師本人沒有權限，也用不到：他看不到新增記錄的表單）
   const overviewQuery = trpc.reports.balanceOverview.useQuery(undefined, { enabled: canManage(user?.role) });
   const reserveNowQuery = trpc.mainLedger.reserveNow.useQuery();
+  const unpaidTotal = (entriesQuery.data ?? []).reduce((s: number, e: any) => s + (e.unpaidAmount ?? 0), 0);
   // 帳本有變動（包含編輯視窗、訂單記帳）就跟著更新目前公積金
   useEffect(() => {
     if (entriesQuery.dataUpdatedAt) reserveNowQuery.refetch();
@@ -1327,7 +1328,12 @@ export default function MainLedgerPage({ view }: { view: "entry" | "book" }) {
           <span className="text-emerald-600">收入 {fmt(visibleTotals.income)}</span>
           <span className="text-red-600">支出 {fmt(visibleTotals.expense)}</span>
           <span>公積金增減 {signedFmt(visibleTotals.reserve)}</span>
-          {reserveNowQuery.data != null && <span className="font-medium">目前剩餘公積金 {fmt(reserveNowQuery.data)}</span>}
+          {reserveNowQuery.data != null && (
+            <span className="font-medium">
+              目前剩餘公積金 {fmt(reserveNowQuery.data)}
+              {unpaidTotal > 0 && <span className="text-xs font-normal text-slate-500">（未入帳 {fmt(unpaidTotal)}）</span>}
+            </span>
+          )}
         </div>
         <div className="table-wrap">
         <table className="data-table">

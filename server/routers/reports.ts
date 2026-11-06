@@ -29,7 +29,7 @@ async function overviewFor(db: any, recipientType: "teacher" | "salesperson", li
       .select()
       .from(ledgerTable)
       .where(eq(recipientColumn as any, person.id))
-      .orderBy(desc(ledgerTable.id))
+      .orderBy(desc(ledgerTable.createdAt), desc(ledgerTable.id))
       .limit(1);
     const totalBalance = rows[0]?.personalBalance ?? 0;
 

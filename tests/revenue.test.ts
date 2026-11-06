@@ -198,3 +198,19 @@ test("網紅碼：11/7 起的訂單照售價分，佣金 5%，小班家教不算
   const old = await planOrder(db, { ...order, orderedAt: Date.UTC(2026, 10, 6, 15) }, {}, await loadCatalog(db), coupon);
   assert.ok(old.errors.some((e) => e.includes("2026-11-07")));
 });
+
+test("部分入帳：帳本記整筆、分潤照整筆算，未入帳另外記", async () => {
+  const { db, sqlite } = makeDb();
+  const p = await plan(db, webOrder("T-P", 27000, 0, [["科學班物理衝刺班 2026-2027", 27000]]));
+  const c = p.combined!;
+  await insertIncome(
+    db,
+    1,
+    { itemName: c.itemName, categoryId: c.categoryId, categoryName: c.categoryName, amount: c.amount, note: c.note, incomeSource: c.incomeSource, breakdown: c.breakdown, unpaidAmount: 7000 },
+    c.distributions,
+    (d) => d.itemNameSuffix
+  );
+  const e = sqlite.prepare("SELECT amount, unpaid_amount u, balance FROM main_ledger").get() as any;
+  assert.deepEqual([e.amount, e.u, e.balance], [27000, 7000, 27000]);
+  assert.equal((sqlite.prepare("SELECT personal_amount a FROM teacher_ledger ORDER BY id LIMIT 1").get() as any).a, 21600);
+});
