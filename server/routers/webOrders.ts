@@ -22,7 +22,7 @@ const recordInput = z.object({
   orderNos: z.array(z.string()).min(1).max(50),
   overrides: overridesInput,
   coupons: z.array(z.object({ orderNo: z.string(), couponId: z.number() })).max(50).default([]),
-  partials: z.array(z.object({ orderNo: z.string(), received: z.number().int().positive() })).max(50).default([]),
+  partials: z.array(z.object({ orderNo: z.string(), received: z.number().int().min(0) })).max(50).default([]),
 });
 
 async function planOrders(db: any, input: z.infer<typeof recordInput>) {
@@ -39,7 +39,7 @@ async function planOrders(db: any, input: z.infer<typeof recordInput>) {
     const plan = await planOrder(db, order, ov, catalog, input.coupons.find((c) => c.orderNo === no)?.couponId ?? null);
     const partial = input.partials.find((p) => p.orderNo === no);
     const unpaidAmount = partial && plan.combined ? plan.combined.amount - partial.received : 0;
-    if (partial && unpaidAmount <= 0) plan.errors.push("部分入帳的已收金額要小於這張訂單的入帳金額");
+    if (partial && unpaidAmount < 0) plan.errors.push("部分入帳的已收金額不能大於這張訂單的入帳金額");
     plans.push({ ...plan, unpaidAmount: Math.max(unpaidAmount, 0) });
   }
   return plans;

@@ -475,8 +475,8 @@ export const mainLedgerRouter = router({
       const db = ctx.db;
       const [before] = await db.select().from(mainLedger).where(eq(mainLedger.id, input.id)).limit(1);
       if (!before || before.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "找不到這筆記錄" });
-      if (input.unpaidAmount !== undefined && (before.type !== "income" || input.unpaidAmount >= (input.amount ?? before.amount)))
-        throw new TRPCError({ code: "BAD_REQUEST", message: "未入帳金額要小於這筆收入的金額" });
+      if (input.unpaidAmount !== undefined && (before.type !== "income" || input.unpaidAmount > (input.amount ?? before.amount)))
+        throw new TRPCError({ code: "BAD_REQUEST", message: "未入帳金額不能大於這筆收入的金額" });
       const amountChanged = input.amount !== undefined && input.amount !== before.amount;
       if (amountChanged) {
         const dists = await db.select().from(ledgerDistribution).where(eq(ledgerDistribution.mainLedgerId, input.id));

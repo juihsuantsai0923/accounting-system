@@ -4,6 +4,7 @@ import { makeDb, webOrder } from "./helpers";
 import { loadCatalog, planOrder } from "../server/webOrderRecord";
 import { insertIncome } from "../server/routers/mainLedger";
 import { recalcBookShares } from "../server/bookShares";
+import { appRouter } from "../server/routers/index";
 
 /** 規劃一張官網訂單（不寫入） */
 async function plan(db: any, order: ReturnType<typeof webOrder>) {
@@ -213,4 +214,11 @@ test("部分入帳：帳本記整筆、分潤照整筆算，未入帳另外記",
   const e = sqlite.prepare("SELECT amount, unpaid_amount u, balance FROM main_ledger").get() as any;
   assert.deepEqual([e.amount, e.u, e.balance], [27000, 7000, 27000]);
   assert.equal((sqlite.prepare("SELECT personal_amount a FROM teacher_ledger ORDER BY id LIMIT 1").get() as any).a, 21600);
+
+  // 先寄貨還沒收到錢：未入帳可以等於整筆金額，但不能超過
+  const admin = appRouter.createCaller({ db, user: { id: 1, role: "super_admin" } } as any);
+  const id = (sqlite.prepare("SELECT id FROM main_ledger").get() as any).id;
+  await admin.mainLedger.update({ id, itemName: c.itemName, unpaidAmount: 27000 });
+  assert.equal((sqlite.prepare("SELECT unpaid_amount u FROM main_ledger").get() as any).u, 27000);
+  await assert.rejects(admin.mainLedger.update({ id, itemName: c.itemName, unpaidAmount: 27001 }), /不能大於/);
 });

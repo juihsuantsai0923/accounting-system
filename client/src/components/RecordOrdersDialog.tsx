@@ -19,7 +19,7 @@ export default function RecordOrdersDialog({ orderNos, onClose, onDone }: { orde
   const [orderCoupons, setOrderCoupons] = useState<{ orderNo: string; couponId: number }[]>([]);
   const [received, setReceived] = useState<Record<string, string>>({});
   const partials = Object.entries(received)
-    .filter(([, v]) => parseInt(v || "0", 10) > 0)
+    .filter(([, v]) => v !== "")
     .map(([orderNo, v]) => ({ orderNo, received: parseInt(v, 10) }));
   const preview = trpc.webOrders.previewRecord.useQuery({ orderNos, overrides, coupons: orderCoupons, partials });
   const couponsQuery = trpc.coupons.list.useQuery();
