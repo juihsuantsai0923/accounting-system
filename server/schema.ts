@@ -244,7 +244,7 @@ export const advancePayments = sqliteTable("advance_payments", {
   recipientId: integer("recipient_id").notNull(),
   itemName: text("item_name").notNull(), // 自動組成「下訂人_類別」
   orderName: text("order_name"), // 訂單名稱（官網訂單＝編號＋品項，或手打）
-  orderNo: text("order_no"), // 從官網訂單選的才有
+  orderNo: text("order_no"), // 從官網訂單選的才有；多張訂單合成一筆時用逗號分隔
   buyer: text("buyer"), // 下訂人（只存姓名）
   category: text("category"), // 運費、其他…（advance_categories）
   amount: integer("amount").notNull(),

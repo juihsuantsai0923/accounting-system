@@ -67,7 +67,7 @@ export default function AdvancePaymentsPage() {
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [batchMode, setBatchMode] = useState(false);
-  const [picked, setPicked] = useState<Record<string, string>>({});
+  const [picked, setPicked] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -140,21 +140,20 @@ export default function AdvancePaymentsPage() {
   function resetForm() {
     setEditingId(null);
     setForm(emptyForm);
-    setPicked({});
+    setPicked([]);
   }
 
   async function handleBatchSubmit(category: string) {
-    const entries = Object.entries(picked);
-    if (!entries.length) return setError("請至少勾選一張訂單");
-    if (entries.length > BATCH_LIMIT) return setError(`一次最多 ${BATCH_LIMIT} 筆，請分批登記`);
-    if (entries.some(([, amount]) => !(parseInt(amount, 10) > 0))) return setError("每張勾選的訂單都要填金額");
+    if (!picked.length) return setError("請至少勾選一張訂單");
+    if (picked.length > BATCH_LIMIT) return setError(`一次最多 ${BATCH_LIMIT} 張，請分批登記`);
+    if (!(parseInt(form.amount, 10) > 0)) return setError("請填這批的總金額");
     if (!isSelf && !recipientId) return setError(`請選擇${TYPE_LABELS[recipientType]}`);
-    const items = entries.map(([orderNo, amount]) => {
+    const pickedOrders = picked.map((orderNo) => {
       const o = orders.find((x) => x.orderNo === orderNo)!;
-      return { orderName: orderLabel(o).slice(0, 200), orderNo, buyer: o.buyer, amount };
+      return { orderName: orderLabel(o).slice(0, 200), orderNo, buyer: o.buyer };
     });
     const who = isSelf ? {} : { recipientType, recipientId: Number(recipientId) };
-    await createBatchMutation.mutateAsync({ ...who, category, note: form.note || undefined, items });
+    await createBatchMutation.mutateAsync({ ...who, category, note: form.note || undefined, amount: form.amount, orders: pickedOrders });
     resetForm();
     utils.advancePayments.categories.invalidate();
   }
@@ -198,7 +197,7 @@ export default function AdvancePaymentsPage() {
   }
 
   const saving = createMutation.isPending || createBatchMutation.isPending || updateMutation.isPending;
-  const pickedCount = Object.keys(picked).length;
+  const pickedCount = picked.length;
   const myOwed = approved.reduce((s, a) => s + a.amount, 0);
   const colCount = 9 + (isAdmin ? 1 : 0) + (canWrite ? 1 : 0);
 
@@ -393,18 +392,16 @@ export default function AdvancePaymentsPage() {
                 />
               )}
             </div>
-            {!batchMode && (
-              <div>
-                <label className="label">金額</label>
-                <input
-                  className="input"
-                  inputMode="numeric"
-                  value={form.amount}
-                  onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^\d]/g, "") })}
-                  required
-                />
-              </div>
-            )}
+            <div>
+              <label className="label">{batchMode ? "總金額" : "金額"}</label>
+              <input
+                className="input"
+                inputMode="numeric"
+                value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^\d]/g, "") })}
+                required
+              />
+            </div>
             <div className="md:col-span-2">
               <label className="label">備註（選填）</label>
               <input className="input" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
@@ -415,7 +412,7 @@ export default function AdvancePaymentsPage() {
           )}
           <div className="flex gap-2">
             <button className="btn-primary" type="submit" disabled={saving}>
-              {saving ? "儲存中..." : editingId ? "儲存修改" : batchMode ? `新增 ${pickedCount} 筆代墊` : "新增代墊"}
+              {saving ? "儲存中..." : editingId ? "儲存修改" : batchMode ? `新增代墊（${pickedCount} 張訂單）` : "新增代墊"}
             </button>
             {editingId && (
               <button className="btn-secondary" type="button" onClick={resetForm}>

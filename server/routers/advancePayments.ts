@@ -12,7 +12,7 @@ type AdvanceRow = typeof advancePayments.$inferSelect;
 
 const fieldsInput = {
   orderName: z.string().trim().max(200).optional(),
-  orderNo: z.string().trim().max(50).optional(),
+  orderNo: z.string().trim().max(3000).optional(), // 多張訂單合成一筆時用逗號分隔
   buyer: z.string().trim().max(50).optional(),
   category: z.string().trim().min(1, "請選類別").max(30),
   amount: z.string().regex(/^\d+$/, "金額必須為整數"),
@@ -25,6 +25,14 @@ const fieldsInput = {
 export function advanceItemName(f: { buyer?: string | null; orderName?: string | null; category: string }) {
   const who = f.buyer?.trim() || f.orderName?.trim();
   return who ? `${who}_${f.category}` : f.category;
+}
+
+/** 多張訂單合成一筆代墊的欄位：訂單編號用逗號分隔，下訂人去掉重複（同一人下兩張算一人） */
+export function batchOrderFields(orders: { orderNo: string; buyer: string; orderName?: string }[]) {
+  const buyers = [...new Set(orders.map((o) => o.buyer.trim()).filter(Boolean))];
+  const orderName = orders.length === 1 ? orders[0].orderName : `${orders.length} 張訂單：${buyers.join("、")}`;
+  const buyer = buyers.length > 1 ? `${buyers[0]} 等 ${buyers.length} 人` : buyers[0];
+  return { orderNo: orders.map((o) => o.orderNo).join(","), orderName: orderName?.slice(0, 200), buyer: buyer?.slice(0, 50) };
 }
 
 /** 代墊類別對應到帳本的支出類型（出貨員代墊核銷時用）；「其他」併進既有的「其他支出」 */
@@ -237,7 +245,7 @@ export const advancePaymentsRouter = router({
       return advance;
     }),
 
-  /** 一次寄很多件：勾選多張訂單一起登記，每張一筆代墊，同一類別；要審核的只發一則 LINE */
+  /** 一次寄很多件：勾選多張訂單，填這批的總金額，記成一筆代墊（訂單可能合併寄出，不分攤到每張） */
   createBatch: protectedProcedure
     .input(
       z.object({
@@ -245,25 +253,22 @@ export const advancePaymentsRouter = router({
         recipientId: z.number().optional(),
         category: fieldsInput.category,
         note: fieldsInput.note,
-        // 每筆約 4 次資料庫操作，留在 Worker 單次請求的查詢上限內
-        items: z
-          .array(z.object({ orderName: fieldsInput.orderName, orderNo: fieldsInput.orderNo, buyer: fieldsInput.buyer, amount: fieldsInput.amount }))
+        amount: fieldsInput.amount,
+        orders: z
+          .array(z.object({ orderName: fieldsInput.orderName, orderNo: z.string().trim().min(1).max(50), buyer: z.string().trim().max(50) }))
           .min(1, "請至少勾選一張訂單")
-          .max(150, "一次最多 150 筆"),
+          .max(150, "一次最多 150 張"),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const who = resolveRecipient(ctx, input);
-      const amounts = input.items.map((i) => parseInt(i.amount, 10));
-      if (amounts.some((a) => a <= 0)) throw new TRPCError({ code: "BAD_REQUEST", message: "每筆代墊金額都要大於 0" });
+      const amount = parseInt(input.amount, 10);
+      if (amount <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "代墊總金額必須大於 0" });
 
       await ensureCategory(ctx.db, input.category);
-      for (let i = 0; i < input.items.length; i++) {
-        await insertAdvance(ctx, who, { ...input.items[i], category: input.category, note: input.note }, amounts[i]);
-      }
-      const total = amounts.reduce((s, a) => s + a, 0);
-      if (needsReview(ctx.user)) await notifyReview(ctx, { category: input.category, amount: total, orderName: `共 ${amounts.length} 筆` }, "有新的代墊等你審核");
-      return { count: amounts.length, total };
+      const advance = await insertAdvance(ctx, who, { ...batchOrderFields(input.orders), category: input.category, note: input.note }, amount);
+      if (advance.reviewStatus === "pending") await notifyReview(ctx, advance, "有新的代墊等你審核");
+      return { count: input.orders.length, total: amount };
     }),
 
   update: protectedProcedure.input(z.object({ id: z.number(), ...fieldsInput })).mutation(async ({ ctx, input }) => {
@@ -339,7 +344,7 @@ export const advancePaymentsRouter = router({
     await ctx.db.delete(advanceCategories).where(eq(advanceCategories.id, input.id));
   }),
 
-  /** 填代墊時可以選的官網訂單（最近 120 天、沒取消的）；只給訂單編號、日期、下訂人姓名、品項 */
+  /** 填代墊時可以選的官網訂單（最近 120 天、沒取消也還沒完成的）；只給訂單編號、日期、下訂人姓名、品項 */
   orderOptions: protectedProcedure.query(async ({ ctx }) => {
     if (!["super_admin", "shipper_self"].includes(ctx.user.role)) return [];
     const since = Date.now() - 120 * 86400_000;
@@ -350,9 +355,12 @@ export const advancePaymentsRouter = router({
       .from(advancePayments)
       .where(and(isNotNull(advancePayments.orderNo), ne(advancePayments.reviewStatus, "rejected")));
     const registered = new Map<string, string[]>();
-    for (const a of existing) if (a.orderNo && a.category) registered.set(a.orderNo, [...(registered.get(a.orderNo) ?? []), a.category]);
+    for (const a of existing) {
+      if (!a.orderNo || !a.category) continue;
+      for (const no of a.orderNo.split(",")) registered.set(no, [...(registered.get(no) ?? []), a.category]);
+    }
     return rows
-      .filter((o: any) => o.tab !== "cancelled")
+      .filter((o: any) => o.tab !== "cancelled" && o.tab !== "completed")
       .map((o: any) => {
         let items: string[] = [];
         try {
