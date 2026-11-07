@@ -199,6 +199,21 @@ test("多品項訂單：子記帳表的原始金額是該品項的金額，不�
   ]);
 });
 
+test("應付總覽：出貨員排在老師後面，推銷者最後", async () => {
+  const { admin, sqlite } = setup();
+  const now = Date.now();
+  sqlite.prepare("DELETE FROM shippers").run();
+  sqlite.prepare("DELETE FROM salespeople").run();
+  sqlite.prepare("INSERT INTO shippers (id, name, created_at, updated_at) VALUES (1, '余彩霞', ?, ?)").run(now, now);
+  const sp = sqlite.prepare("INSERT INTO salespeople (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)");
+  sp.run(1, "網紅甲", now, now);
+  sp.run(2, "余彩霞", now, now);
+  const rows = await admin.reports.balanceOverview();
+  const tail = rows.filter((r) => r.recipientType === "salesperson").map((r) => [r.name, r.isShipper]);
+  assert.deepEqual(tail, [["余彩霞", true], ["網紅甲", false]]);
+  assert.ok(rows.findIndex((r) => r.name === "余彩霞") > rows.findLastIndex((r) => r.recipientType === "teacher"));
+});
+
 test("多張訂單代墊：填總金額記成一筆，出貨員待審核、管理員直接算數，已完成的訂單不列出", async () => {
   const { admin, shipper, sqlite } = setup();
   const now = Date.now();

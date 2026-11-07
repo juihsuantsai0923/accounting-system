@@ -256,7 +256,10 @@ export const reportsRouter = router({
       overviewFor(ctx.db, "salesperson", salespersonList),
     ]);
 
-    return [...teacherOverview, ...salespersonOverview];
+    // 出貨員的分潤記在同名的推銷者帳上，總覽要標成出貨員、排在老師後面
+    const shipperNames = new Set((await ctx.db.select({ name: shippers.name }).from(shippers)).map((s: { name: string }) => s.name));
+    const others = salespersonOverview.map((r) => ({ ...r, isShipper: shipperNames.has(r.name) }));
+    return [...teacherOverview.map((r) => ({ ...r, isShipper: false })), ...others.filter((r) => r.isShipper), ...others.filter((r) => !r.isShipper)];
   }),
 
   /** 帳務自我檢查（儀表板「需要注意」用）：餘額、分配表、子記帳表有沒有對不上 */

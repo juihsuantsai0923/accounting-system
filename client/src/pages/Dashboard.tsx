@@ -24,6 +24,11 @@ function fmt(n: number) {
   return n < 0 ? `−NT$${Math.abs(n).toLocaleString()}` : `NT$${n.toLocaleString()}`;
 }
 
+/** 應付總覽的身份：出貨員的帳記在同名推銷者底下，這裡顯示出貨員 */
+function overviewRole(row: { recipientType: string; isShipper: boolean }) {
+  return row.recipientType === "teacher" ? "教師" : row.isShipper ? "出貨員" : "推銷者";
+}
+
 function toCsvClient(headers: string[], rows: (string | number)[][]) {
   const escape = (v: string | number) => {
     const s = String(v);
@@ -123,7 +128,7 @@ export default function Dashboard() {
     const csv = toCsvClient(
       ["身份", "姓名", "子記帳表餘額（公司欠款）", "其中未核銷代墊"],
       (overviewQuery.data ?? []).map((row) => [
-        row.recipientType === "teacher" ? "教師" : "推銷者",
+        overviewRole(row),
         row.name,
         row.totalBalance,
         row.unsettledAdvanceTotal,
@@ -276,7 +281,7 @@ export default function Dashboard() {
           <tbody>
             {(overviewQuery.data ?? []).map((row) => (
               <tr key={`${row.recipientType}-${row.recipientId}`}>
-                <td>{row.recipientType === "teacher" ? "教師" : "推銷者"}</td>
+                <td>{overviewRole(row)}</td>
                 <td>{row.name}</td>
                 <td className={row.totalBalance > 0 ? "text-red-600 font-medium" : ""}>{fmt(row.totalBalance)}</td>
                 <td className={row.unsettledAdvanceTotal > 0 ? "text-amber-600 font-medium" : ""}>
