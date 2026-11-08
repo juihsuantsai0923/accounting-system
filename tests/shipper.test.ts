@@ -246,8 +246,13 @@ test("多張訂單代墊：填總金額記成一筆，出貨員待審核、管�
   await admin.advancePayments.review({ id: rows[0].id, approve: false });
   assert.deepEqual((await shipper.advancePayments.orderOptions()).find((o) => o.orderNo === "A2")?.registeredCategories, []);
 
-  // 已完成的訂單不出現在清單
+  // 30 天內下訂的已完成訂單仍列出並標已完成；超過 30 天的不列
   sqlite.prepare("UPDATE web_orders SET tab = 'completed' WHERE order_no = 'A1'").run();
+  assert.deepEqual(
+    (await shipper.advancePayments.orderOptions()).map((o) => [o.orderNo, o.completed]).sort(),
+    [["A1", true], ["A2", false]],
+  );
+  sqlite.prepare("UPDATE web_orders SET ordered_at = ? WHERE order_no = 'A1'").run(Date.now() - 31 * 86400_000);
   assert.deepEqual((await shipper.advancePayments.orderOptions()).map((o) => o.orderNo), ["A2"]);
 
   // 同一人下兩張訂單算一人；管理員替老師登記不用審核，直接進子記帳表

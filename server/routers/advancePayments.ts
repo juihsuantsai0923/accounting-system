@@ -344,10 +344,12 @@ export const advancePaymentsRouter = router({
     await ctx.db.delete(advanceCategories).where(eq(advanceCategories.id, input.id));
   }),
 
-  /** 填代墊時可以選的官網訂單（最近 120 天、沒取消也還沒完成的）；只給訂單編號、日期、下訂人姓名、品項 */
+  /** 填代墊時可以選的官網訂單（最近 120 天、沒取消的；已完成的只列最近 30 天下訂的，標 completed）；只給訂單編號、日期、下訂人姓名、品項 */
   orderOptions: protectedProcedure.query(async ({ ctx }) => {
     if (!["super_admin", "shipper_self"].includes(ctx.user.role)) return [];
     const since = Date.now() - 120 * 86400_000;
+    // 官網沒有完成時間，用下訂日期判斷：30 天內下訂、已完成的訂單也列出（例如寄出後很快就完成的）
+    const completedSince = Date.now() - 30 * 86400_000;
     const rows = await ctx.db.select().from(webOrders).where(gte(webOrders.orderedAt, since)).orderBy(desc(webOrders.orderedAt));
     // 這張訂單已經登記過哪些類別（退回的不算），多筆登記時提醒不要重複
     const existing = await ctx.db
@@ -360,13 +362,20 @@ export const advancePaymentsRouter = router({
       for (const no of a.orderNo.split(",")) registered.set(no, [...(registered.get(no) ?? []), a.category]);
     }
     return rows
-      .filter((o: any) => o.tab !== "cancelled" && o.tab !== "completed")
+      .filter((o: any) => o.tab !== "cancelled" && (o.tab !== "completed" || o.orderedAt >= completedSince))
       .map((o: any) => {
         let items: string[] = [];
         try {
           items = (JSON.parse(o.items) as { name: string }[]).map((i) => i.name);
         } catch {}
-        return { orderNo: o.orderNo as string, orderedAt: o.orderedAt as number, buyer: o.buyer as string, items, registeredCategories: registered.get(o.orderNo) ?? [] };
+        return {
+          orderNo: o.orderNo as string,
+          orderedAt: o.orderedAt as number,
+          buyer: o.buyer as string,
+          items,
+          completed: o.tab === "completed",
+          registeredCategories: registered.get(o.orderNo) ?? [],
+        };
       });
   }),
 

@@ -362,6 +362,7 @@ export default function AdvancePaymentsPage() {
                 {orders.map((o) => (
                   <option key={o.orderNo} value={orderLabel(o)}>
                     {new Date(o.orderedAt).toLocaleDateString()} {o.buyer}
+                    {o.completed ? "（已完成）" : ""}
                   </option>
                 ))}
               </datalist>

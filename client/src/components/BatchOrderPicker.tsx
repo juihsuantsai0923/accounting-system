@@ -7,10 +7,11 @@ export interface OrderOption {
   orderedAt: number;
   buyer: string;
   items: string[];
+  completed?: boolean;
   registeredCategories: string[];
 }
 
-/** 多張訂單一起登記代墊：這裡只勾訂單，金額填這批的總金額。picked＝勾選的訂單編號 */
+/** 多張訂單一起登記代墊：這裡只勾訂單，金額填這批的總金額。picked＝勾選的訂單編號；全選不勾已完成的訂單（可能和同人另一張訂單同一包），要的話自己勾 */
 export default function BatchOrderPicker({
   orders,
   category,
@@ -34,7 +35,7 @@ export default function BatchOrderPicker({
   }
 
   function selectVisible() {
-    onChange([...new Set([...picked, ...visible.filter((o) => !isRegistered(o)).map((o) => o.orderNo)])]);
+    onChange([...new Set([...picked, ...visible.filter((o) => !isRegistered(o) && !o.completed).map((o) => o.orderNo)])]);
   }
 
   return (
@@ -62,6 +63,7 @@ export default function BatchOrderPicker({
                 <span className="text-xs text-slate-400 ml-2">
                   #{o.orderNo}・{new Date(o.orderedAt).toLocaleDateString()}
                 </span>
+                {o.completed && <span className="text-xs text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5 ml-2">已完成</span>}
                 {isRegistered(o) && <span className="text-xs text-amber-600 ml-2">已登記過{category}</span>}
                 <span className="block text-xs text-slate-500 truncate">{o.items.join("、")}</span>
               </span>
@@ -72,6 +74,7 @@ export default function BatchOrderPicker({
       </div>
       <div className={`text-sm ${count > BATCH_LIMIT ? "text-red-600" : "text-slate-600"}`}>
         已選 {count} 張訂單，合計一筆代墊
+        {orders.some((o) => o.completed) && <span className="text-slate-400">（全選不含已完成的訂單）</span>}
         {count > BATCH_LIMIT && `（一次最多 ${BATCH_LIMIT} 張）`}
       </div>
     </div>
