@@ -268,3 +268,34 @@ test("多張訂單代墊：填總金額記成一筆，出貨員待審核、管�
   assert.deepEqual(balances, [{ i: "甲_運費", b: 60 }]);
   await assert.rejects(admin.advancePayments.createBatch({ category: "運費", amount: "60", orders }), /請選擇代墊的人/);
 });
+
+test("官網推送寄件代碼：存進訂單、代墊選單帶出來；同一個代碼算一包", async () => {
+  const { db, sqlite, shipper } = setup();
+  const { handlePushRequest, PUSH_KEY_NAME } = await import("../server/webOrdersSync");
+  const { packageCount } = await import("../client/src/components/BatchOrderPicker");
+  const key = "lxs_test_key";
+  const hash = [...new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(key)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  sqlite.prepare("INSERT INTO integration_keys (name, key_hash, created_at) VALUES (?, ?, ?)").run(PUSH_KEY_NAME, hash, Date.now());
+  const order = (orderNo: string, buyer: string, trackingCode?: string | null) => ({
+    orderNo,
+    orderedAt: new Date().toISOString(),
+    buyer,
+    total: 100,
+    status: "paid",
+    items: [],
+    ...(trackingCode === undefined ? {} : { trackingCode }),
+  });
+  const push = (orders: unknown[]) => handlePushRequest(db, `Bearer ${key}`, { orders });
+  assert.equal((await push([order("LX-20261108-001", "甲", "H3827065"), order("LX-20261108-002", "甲", "H3827065"), order("LX-20261108-003", "乙", null)]))[0], 200);
+
+  const options = await shipper.advancePayments.orderOptions();
+  const code = (no: string) => options.find((o) => o.orderNo === no)?.trackingCode;
+  assert.deepEqual([code("LX-20261108-001"), code("LX-20261108-002"), code("LX-20261108-003")], ["H3827065", "H3827065", null]);
+  assert.equal(packageCount(options), 2);
+
+  // 舊版官網沒送這欄：保留原本的代碼；送 null：清掉
+  await push([order("LX-20261108-001", "甲")]);
+  assert.equal((await shipper.advancePayments.orderOptions()).find((o) => o.orderNo === "LX-20261108-001")?.trackingCode, "H3827065");
+  await push([order("LX-20261108-001", "甲", null)]);
+  assert.equal((await shipper.advancePayments.orderOptions()).find((o) => o.orderNo === "LX-20261108-001")?.trackingCode, null);
+});

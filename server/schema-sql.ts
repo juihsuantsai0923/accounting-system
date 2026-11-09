@@ -252,7 +252,8 @@ export const createTableStatements: string[] = [
     items TEXT NOT NULL,
     synced_at INTEGER NOT NULL,
     manual_status TEXT,
-    manual_note TEXT
+    manual_note TEXT,
+    tracking_code TEXT
   )`,
 
   `CREATE TABLE IF NOT EXISTS recurring_entries (

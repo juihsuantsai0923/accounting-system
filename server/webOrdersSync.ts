@@ -157,6 +157,8 @@ const pushOrder = z.object({
   discount: z.number().int().min(0).default(0),
   status: z.enum(["pending_payment", "paid", "completed", "cancelled"]),
   statusLabel: z.string().min(1).max(50).optional(),
+  /** 寄件代碼（沒填是 null；舊版官網不送這欄＝不更動） */
+  trackingCode: z.string().trim().max(80).nullable().optional(),
   items: z
     .array(
       z.object({
@@ -213,6 +215,10 @@ export async function handlePushRequest(
     return [400, { error: e.message }];
   }
   const { count, syncedAt, created, changed } = await upsertWebOrders(db, rows, PUSH_KEY_NAME);
+  for (const o of parsed.data.orders) {
+    if (o.trackingCode === undefined) continue;
+    await db.update(webOrders).set({ trackingCode: o.trackingCode || null }).where(eq(webOrders.orderNo, o.orderNo));
+  }
   if (onChanges && (created.length || changed.length)) {
     try {
       await onChanges({ created, changed });

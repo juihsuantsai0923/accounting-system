@@ -335,6 +335,7 @@ export const advancePaymentsRouter = router({
           buyer: o.buyer as string,
           items,
           completed: o.tab === "completed",
+          trackingCode: (o.trackingCode as string | null) ?? null,
           registeredCategories: registered.get(o.orderNo) ?? [],
         };
       });

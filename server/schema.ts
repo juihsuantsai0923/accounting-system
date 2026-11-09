@@ -313,6 +313,7 @@ export const webOrders = sqliteTable("web_orders", {
   syncedAt: integer("synced_at").notNull(),
   manualStatus: text("manual_status"), // 記帳這邊手動標記：matched（已人工確認）| ignored（不需入帳）| received（已確認收款並入帳）
   manualNote: text("manual_note"),
+  trackingCode: text("tracking_code"), // 官網後台填的寄件代碼；同一個代碼＝同一包
 });
 
 // ── IntegrationKeys / 外部整合金鑰（只存 SHA-256；目前只有官網訂單同步書籤） ─────────────────────────────
