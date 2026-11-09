@@ -91,7 +91,6 @@ export default function Dashboard() {
   const booksQuery = trpc.books.list.useQuery(undefined, { enabled: !isSelfRole });
   const couponsQuery = trpc.coupons.list.useQuery(undefined, { enabled: !isSelfRole });
   const integrityQuery = trpc.reports.integrity.useQuery(undefined, { enabled: !isSelfRole });
-  const advancesQuery = trpc.advancePayments.list.useQuery({ status: "unsettled" }, { enabled: !isSelfRole });
   const reconcileQuery = trpc.webOrders.reconcile.useQuery(undefined, { enabled: !isSelfRole });
   const pendingRequestsQuery = trpc.accountRequests.pendingCount.useQuery(undefined, { enabled: user?.role === "super_admin" });
   const unpaidQuery = trpc.mainLedger.unpaidList.useQuery(undefined, { enabled: !!user && !["teacher_self", "salesperson_self", "shipper_self"].includes(user.role) });
@@ -110,13 +109,11 @@ export default function Dashboard() {
   const totalExpense = (mainLedgerQuery.data ?? []).filter((e) => e.type === "expense").reduce((s, e) => s + e.amount, 0);
   const currentBalance = mainLedgerQuery.data?.length ? mainLedgerQuery.data[mainLedgerQuery.data.length - 1].balance : 0;
 
-  // 出貨員沒有子記帳表分潤，欠他的錢＝他還沒核銷的代墊
-  const approvedAdvances = (advancesQuery.data ?? []).filter((a) => a.reviewStatus === "approved");
-  const shipperOwed = approvedAdvances.filter((a) => a.recipientType === "shipper").reduce((s, a) => s + a.amount, 0);
-  const totalUnsettledAdvance = (overviewQuery.data ?? []).reduce((s, r) => s + r.unsettledAdvanceTotal, 0) + shipperOwed;
+  // 代墊審核通過就計入子記帳表（出貨員記在同名推銷者），已經包含在每人的欠款裡
+  const totalUnsettledAdvance = (overviewQuery.data ?? []).reduce((s, r) => s + r.unsettledAdvanceTotal, 0);
   const totalOwed = (overviewQuery.data ?? []).reduce((s, r) => s + Math.max(r.totalBalance, 0), 0);
   // 公積金＝公司帳上的錢扣掉還欠每個人的錢（含代墊）；有人被多付（餘額為負）會反過來加回公積金
-  const netOwed = (overviewQuery.data ?? []).reduce((s, r) => s + r.totalBalance, 0) + shipperOwed;
+  const netOwed = (overviewQuery.data ?? []).reduce((s, r) => s + r.totalBalance, 0);
   const reserveFund = currentBalance - netOwed;
   const unpaidOrders = unpaidQuery.data ?? [];
   const unpaidTotal = unpaidOrders.reduce((s, o) => s + o.unpaidAmount, 0);
@@ -205,7 +202,7 @@ export default function Dashboard() {
           <div className="text-2xl font-semibold mt-1 text-red-600">{fmt(totalExpense)}</div>
         </div>
         <div className="card">
-          <div className="text-sm text-slate-500">未核銷代墊總額</div>
+          <div className="text-sm text-slate-500">欠薪中的代墊</div>
           <div className="text-2xl font-semibold mt-1 text-amber-600">{fmt(totalUnsettledAdvance)}</div>
         </div>
       </div>
@@ -216,7 +213,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
-          <AlertsCard advances={approvedAdvances} coupons={couponsQuery.data ?? []} stats={stats} reconcileIssues={reconcileIssues} integrityIssues={integrityQuery.data ?? []} />
+          <AlertsCard coupons={couponsQuery.data ?? []} stats={stats} reconcileIssues={reconcileIssues} integrityIssues={integrityQuery.data ?? []} />
         </div>
         <Link to="/reconcile" className="card block hover:shadow-card-hover transition-shadow">
           <div className="text-sm text-slate-500">應收帳款（官網待付款）</div>
@@ -274,7 +271,7 @@ export default function Dashboard() {
               <th>身份</th>
               <th>姓名</th>
               <th>子記帳表餘額（公司欠款）</th>
-              <th>其中未核銷代墊</th>
+              <th>其中代墊</th>
               <th></th>
             </tr>
           </thead>

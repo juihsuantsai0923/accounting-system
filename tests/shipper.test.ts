@@ -36,7 +36,6 @@ test("出貨員：只能用代墊功能、只看得到自己的、可以新增�
   await assert.rejects(shipper.mainLedger.list(), /出貨員只能使用代墊功能/);
   await assert.rejects(shipper.reports.balanceOverview(), /出貨員只能使用代墊功能/);
   await assert.rejects(shipper.teachers.list(), /出貨員只能使用代墊功能/);
-  await assert.rejects(shipper.advancePayments.settle({ id: a.id }), /出貨員只能使用代墊功能/);
   // 不能改別人的
   await assert.rejects(other.advancePayments.update({ id: a.id, buyer: "x", category: "運費", amount: "1" }), /只能修改自己的代墊/);
   await assert.rejects(other.advancePayments.delete({ id: a.id }), /只能修改自己的代墊/);
@@ -44,29 +43,36 @@ test("出貨員：只能用代墊功能、只看得到自己的、可以新增�
   assert.equal((await shipper.advancePayments.list({}))[0].amount, 80);
 });
 
-test("出貨員代墊核銷：依類別記帳本支出、刪掉支出代墊退回未核銷、核銷後出貨員不能改", async () => {
-  const { admin, shipper } = setup();
+test("出貨員代墊：審核通過計入同名推銷者的積欠薪水，改金額、刪除會重算，沒有另外核銷", async () => {
+  const { admin, shipper, sqlite } = setup();
+  const now = Date.now();
+  sqlite.prepare("INSERT INTO salespeople (id, name, created_at, updated_at) VALUES (50, '小明', ?, ?)").run(now, now);
+  const owed = () => (sqlite.prepare("SELECT personal_balance b FROM salesperson_ledger WHERE salesperson_id = 50 ORDER BY id DESC LIMIT 1").get() as any)?.b ?? 0;
+
   const a1 = await shipper.advancePayments.create({ buyer: "甲", category: "運費", amount: "60" });
-  await shipper.advancePayments.create({ buyer: "乙", category: "運費", amount: "65" });
-  await shipper.advancePayments.create({ buyer: "丙", category: "其他", amount: "20" });
+  const a2 = await shipper.advancePayments.create({ buyer: "乙", category: "運費", amount: "65" });
+  assert.equal(owed(), 0);
+  for (const a of [a1, a2]) await admin.advancePayments.review({ id: a.id, approve: true });
+  assert.equal(owed(), 125);
+  assert.equal((await admin.mainLedger.list()).length, 0);
 
-  await assert.rejects(admin.advancePayments.settle({ id: a1.id }), /還沒審核通過/);
-  for (const a of await admin.advancePayments.list({})) await admin.advancePayments.review({ id: a.id, approve: true });
+  const row = (await admin.reports.balanceOverview()).find((r: any) => r.name === "小明")!;
+  assert.deepEqual([row.isShipper, row.totalBalance, row.unsettledAdvanceTotal], [true, 125, 125]);
 
-  const r = await admin.advancePayments.settleShipper({ shipperId: 1 });
-  assert.deepEqual([r.count, r.total, r.entries], [3, 145, 2]);
-  const ledger = await admin.mainLedger.list();
-  const fee = ledger.find((e: any) => e.categoryName === "運費")!;
-  assert.equal(fee.amount, 125);
-  assert.equal(ledger.find((e: any) => e.categoryName === "其他支出")!.amount, 20);
-  assert.equal(ledger[ledger.length - 1].balance, -145);
+  await admin.advancePayments.update({ id: a2.id, buyer: "乙", category: "運費", amount: "80" });
+  assert.equal(owed(), 140);
+  await shipper.advancePayments.delete({ id: a1.id });
+  assert.equal(owed(), 80);
+});
 
-  await assert.rejects(shipper.advancePayments.delete({ id: a1.id }), /已核銷/);
-  await assert.rejects(admin.advancePayments.unsettle({ id: a1.id }), /請到帳本刪除那筆支出/);
-
-  await admin.mainLedger.delete({ id: fee.id });
-  const left = await admin.advancePayments.list({ status: "unsettled" });
-  assert.equal(left.length, 2);
+test("出貨員沒有同名推銷者時，代墊通過後自動建一個", async () => {
+  const { admin, sqlite } = setup();
+  const a = await admin.advancePayments.create({ recipientType: "shipper", recipientId: 2, buyer: "丙", category: "運費", amount: "70" });
+  assert.equal(a.reviewStatus, "approved");
+  const person = sqlite.prepare("SELECT id FROM salespeople WHERE name = '小華'").get() as any;
+  assert.ok(person);
+  const b = sqlite.prepare("SELECT personal_balance b FROM salesperson_ledger WHERE salesperson_id = ? ORDER BY id DESC").get(person.id) as any;
+  assert.equal(b.b, 70);
 });
 
 test("教師代墊照舊進子記帳表，修改金額會重算餘額", async () => {
@@ -107,7 +113,6 @@ test("老師自己登記代墊：審核通過才進子記帳表、修改要重�
   await admin.advancePayments.review({ id: a.id, approve: false, note: "金額不對" });
   const [rejected] = await teacher.advancePayments.list({});
   assert.deepEqual([rejected.reviewStatus, rejected.reviewNote], ["rejected", "金額不對"]);
-  await assert.rejects(admin.advancePayments.settle({ id: a.id }), /還沒審核通過/);
 });
 
 test("管理員切成老師身分登記的代墊不用審核", async () => {
@@ -144,11 +149,7 @@ test("剩餘公積金：每筆記完後的數字，代墊算欠款，現在的�
   assert.equal(await admin.mainLedger.reserveNow(), 250);
   assert.deepEqual((await admin.mainLedger.list()).map((e) => e.reserveAfter), [400, 300]);
 
-  // 核銷：帳本多一筆支出、欠款同時還掉，公積金不變
-  await admin.advancePayments.settleShipper({ shipperId: 1 });
   const rows = await admin.mainLedger.list();
-  assert.equal(rows[rows.length - 1].reserveAfter, 250);
-  assert.equal(await admin.mainLedger.reserveNow(), 250);
 
   // 跟儀表板算法核對：餘額 − 子記帳表餘額
   const overview = await admin.reports.balanceOverview();

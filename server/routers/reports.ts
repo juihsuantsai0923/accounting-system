@@ -257,8 +257,23 @@ export const reportsRouter = router({
     ]);
 
     // 出貨員的分潤記在同名的推銷者帳上，總覽要標成出貨員、排在老師後面
-    const shipperNames = new Set((await ctx.db.select({ name: shippers.name }).from(shippers)).map((s: { name: string }) => s.name));
-    const others = salespersonOverview.map((r) => ({ ...r, isShipper: shipperNames.has(r.name) }));
+    const shipperList: { id: number; name: string }[] = await ctx.db.select({ id: shippers.id, name: shippers.name }).from(shippers);
+    const shipperNames = new Set(shipperList.map((s) => s.name));
+    // 出貨員的代墊登記在出貨員名下，金額記在同名推銷者的子記帳表，這裡把代墊合計加回那一列
+    const shipperAdvance = new Map<string, number>();
+    const shipperRows: any[] = await ctx.db
+      .select()
+      .from(advancePayments)
+      .where(and(eq(advancePayments.recipientType, "shipper"), eq(advancePayments.status, "unsettled"), eq(advancePayments.reviewStatus, "approved")));
+    for (const a of shipperRows) {
+      const name = shipperList.find((s) => s.id === a.recipientId)?.name;
+      if (name) shipperAdvance.set(name, (shipperAdvance.get(name) ?? 0) + a.amount);
+    }
+    const others = salespersonOverview.map((r) => ({
+      ...r,
+      isShipper: shipperNames.has(r.name),
+      unsettledAdvanceTotal: r.unsettledAdvanceTotal + (shipperAdvance.get(r.name) ?? 0),
+    }));
     return [...teacherOverview.map((r) => ({ ...r, isShipper: false })), ...others.filter((r) => r.isShipper), ...others.filter((r) => !r.isShipper)];
   }),
 

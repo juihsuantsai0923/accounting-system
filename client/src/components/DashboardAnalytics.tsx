@@ -396,13 +396,11 @@ export function PrepaidTutoringCard({ entries, courses }: { entries: Entry[]; co
 const DAY = 24 * 3600 * 1000;
 
 export function AlertsCard({
-  advances,
   coupons,
   stats,
   reconcileIssues = 0,
   integrityIssues = [],
 }: {
-  advances: any[];
   coupons: any[];
   stats: PersonStatFull[];
   reconcileIssues?: number;
@@ -416,11 +414,7 @@ export function AlertsCard({
   for (const text of integrityIssues) items.push({ level: "warn", text: `帳務檢查：${text}` });
   if (reconcileIssues > 0) items.push({ level: "warn", text: `官網有 ${reconcileIssues} 張訂單跟帳本對不上（到「官網對帳」處理）` });
 
-  const staleAdvances = advances.filter((a) => a.status === "unsettled" && now - a.createdAt > 30 * DAY);
-  if (staleAdvances.length) {
-    const total = staleAdvances.reduce((s, a) => s + a.amount, 0);
-    items.push({ level: "warn", text: `有 ${staleAdvances.length} 筆代墊超過 30 天還沒核銷，共 ${fmt(total)}（到「代墊管理」處理）` });
-  }
+  // 代墊審核通過就計入積欠薪水、跟薪水一起發，不再提醒核銷
   for (const p of stats) {
     const wage = p.balance - p.loan; // 扣掉要還的借款（創始基金），剩下才是欠的薪水分潤
     if (wage <= 0) continue;

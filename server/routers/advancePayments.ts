@@ -1,10 +1,9 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, staffProcedure } from "../trpc";
-import { advancePayments, advanceCategories, teacherLedger, salespersonLedger, expenseTypes, mainLedger, shippers, webOrders } from "../schema";
+import { advancePayments, advanceCategories, teacherLedger, salespersonLedger, salespeople, shippers, webOrders } from "../schema";
 import { and, count, desc, eq, gte, inArray, isNotNull, ne } from "drizzle-orm";
 import { getCurrentBalance, recalculateBalance, writeAudit } from "../ledger";
-import { getLatestBalance } from "./mainLedger";
 import { money, sendLine } from "../lineNotify";
 
 const recipientTypeSchema = z.enum(["teacher", "salesperson", "shipper"]);
@@ -35,11 +34,6 @@ export function batchOrderFields(orders: { orderNo: string; buyer: string; order
   return { orderNo: orders.map((o) => o.orderNo).join(","), orderName: orderName?.slice(0, 200), buyer: buyer?.slice(0, 50) };
 }
 
-/** 代墊類別對應到帳本的支出類型（出貨員代墊核銷時用）；「其他」併進既有的「其他支出」 */
-export function expenseTypeNameFor(category: string) {
-  return category === "其他" ? "其他支出" : category;
-}
-
 async function ensureCategory(db: any, name: string) {
   const [found] = await db.select().from(advanceCategories).where(eq(advanceCategories.name, name)).limit(1);
   if (!found) await db.insert(advanceCategories).values({ name });
@@ -67,14 +61,26 @@ function ledgerTableOf(type: string) {
   return (type === "teacher" ? teacherLedger : salespersonLedger) as typeof teacherLedger;
 }
 
-/** 教師、推銷者的代墊審核通過（或管理員直接登記）才寫進子記帳表；出貨員沒有分潤，直接用代墊紀錄本身 */
-async function addToSubLedger(db: any, userId: number, advance: AdvanceRow) {
-  if (advance.recipientType === "shipper") return;
-  const type = advance.recipientType as "teacher" | "salesperson";
+/**
+ * 代墊記在哪個子記帳表：教師、推銷者記自己的；出貨員記在同名的推銷者底下（行政費分潤也在那裡，沒有就建一個）。
+ * 代墊一律累積在積欠薪水，跟薪水一起發，沒有另外的核銷。
+ */
+export async function subLedgerOf(db: any, advance: { recipientType: string; recipientId: number }): Promise<{ type: "teacher" | "salesperson"; id: number }> {
+  if (advance.recipientType !== "shipper") return { type: advance.recipientType as "teacher" | "salesperson", id: advance.recipientId };
+  const [shipper] = await db.select().from(shippers).where(eq(shippers.id, advance.recipientId)).limit(1);
+  const name = shipper?.name ?? `出貨員 #${advance.recipientId}`;
+  let [person] = await db.select().from(salespeople).where(eq(salespeople.name, name)).limit(1);
+  if (!person) [person] = await db.insert(salespeople).values({ name }).returning();
+  return { type: "salesperson", id: person.id };
+}
+
+/** 代墊審核通過（或管理員直接登記）才寫進子記帳表，算進積欠薪水 */
+export async function addToSubLedger(db: any, userId: number, advance: AdvanceRow) {
+  const { type, id } = await subLedgerOf(db, advance);
   const recipientColumn = type === "teacher" ? "teacherId" : "salespersonId";
-  const currentBalance = await getCurrentBalance(db, type, advance.recipientId);
+  const currentBalance = await getCurrentBalance(db, type, id);
   await db.insert(ledgerTableOf(type)).values({
-    [recipientColumn]: advance.recipientId,
+    [recipientColumn]: id,
     mainLedgerId: null,
     advancePaymentId: advance.id,
     sourceType: "advance",
@@ -148,52 +154,6 @@ async function notifyReview(ctx: any, a: { orderName?: string | null; buyer?: st
       .filter(Boolean)
       .join("\n")
   ).catch(() => null);
-}
-
-/**
- * 出貨員代墊核銷：公司把錢還給出貨員，這時候才是公司的支出。
- * 依類別各記一筆帳本支出（運費、其他支出…），代墊標成已核銷並連到那筆支出；之後刪掉那筆支出，代墊會自動退回未核銷。
- */
-export async function settleShipperAdvances(db: any, userId: number, list: AdvanceRow[]) {
-  if (!list.length) return [];
-  const [shipper] = await db.select().from(shippers).where(eq(shippers.id, list[0].recipientId)).limit(1);
-  const shipperName = shipper?.name ?? `#${list[0].recipientId}`;
-  const groups = new Map<string, AdvanceRow[]>();
-  for (const a of list) {
-    const key = expenseTypeNameFor(a.category || "其他");
-    groups.set(key, [...(groups.get(key) ?? []), a]);
-  }
-  const entries = [];
-  for (const [typeName, rows] of groups) {
-    let [type] = await db.select().from(expenseTypes).where(eq(expenseTypes.name, typeName)).limit(1);
-    if (!type) [type] = await db.insert(expenseTypes).values({ name: typeName }).returning();
-    const amount = rows.reduce((s, a) => s + a.amount, 0);
-    const prev = await getLatestBalance(db);
-    const [entry] = await db
-      .insert(mainLedger)
-      .values({
-        type: "expense",
-        itemName: `出貨員代墊－${typeName}（${shipperName}，${rows.length} 筆）`,
-        categoryId: type.id,
-        categoryName: type.name,
-        amount,
-        balance: prev - amount,
-        note: rows.map((a) => `${a.orderName || a.buyer || a.itemName} ${a.amount}`).join("；"),
-        editedBy: userId,
-        editedAt: Date.now(),
-      })
-      .returning();
-    for (const a of rows) {
-      await db
-        .update(advancePayments)
-        .set({ status: "settled", settledByMainLedgerId: entry.id, settledAt: Date.now(), updatedAt: Date.now() })
-        .where(eq(advancePayments.id, a.id));
-      await writeAudit(db, userId, "settle", "advancePayment", a.id, a, { status: "settled", settledByMainLedgerId: entry.id });
-    }
-    await writeAudit(db, userId, "create", "mainLedger", entry.id, null, entry);
-    entries.push(entry);
-  }
-  return entries;
 }
 
 export const advancePaymentsRouter = router({
@@ -297,12 +257,13 @@ export const advancePaymentsRouter = router({
     };
     await db.update(advancePayments).set(patch).where(eq(advancePayments.id, input.id));
 
-    if (advance.recipientType !== "shipper") {
-      const tbl = ledgerTableOf(advance.recipientType);
+    {
+      const target = await subLedgerOf(db, advance);
+      const tbl = ledgerTableOf(target.type);
       const row = and(eq(tbl.advancePaymentId, advance.id), eq(tbl.sourceType, "advance"));
       if (review) await db.delete(tbl).where(row);
       else await db.update(tbl).set({ itemName, originalAmount: amount, personalAmount: amount, updatedAt: Date.now() }).where(row);
-      if (review || amount !== advance.amount) await recalculateBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
+      if (review || amount !== advance.amount) await recalculateBalance(db, target.type, target.id);
     }
     if (review) await notifyReview(ctx, { ...input, amount }, "有代墊修改後等你重新審核");
     await writeAudit(db, ctx.user.id, "update", "advancePayment", input.id, advance, { ...advance, ...patch });
@@ -379,86 +340,14 @@ export const advancePaymentsRouter = router({
       });
   }),
 
-  settle: staffProcedure
-    .input(z.object({ id: z.number(), mainLedgerId: z.number().nullable().optional() }))
-    .mutation(async ({ ctx, input }) => {
-      const db = ctx.db;
-      const [advance] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
-      if (!advance) throw new TRPCError({ code: "NOT_FOUND", message: "代墊記錄不存在" });
-      if (advance.status !== "unsettled") throw new TRPCError({ code: "BAD_REQUEST", message: "此代墊已核銷" });
-      if (advance.reviewStatus !== "approved") throw new TRPCError({ code: "BAD_REQUEST", message: "這筆代墊還沒審核通過" });
-
-      if (advance.recipientType === "shipper") {
-        await settleShipperAdvances(db, ctx.user.id, [advance]);
-        const [updated] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
-        return updated;
-      }
-
-      const mainLedgerId = input.mainLedgerId ?? null;
-
-      await db
-        .update(advancePayments)
-        .set({ status: "settled", settledByMainLedgerId: mainLedgerId, settledAt: Date.now(), updatedAt: Date.now() })
-        .where(eq(advancePayments.id, input.id));
-
-      // 情境 B：非併入正式撥款，需另外建立沖銷分錄
-      if (!mainLedgerId) {
-        const ledgerTable = ledgerTableOf(advance.recipientType);
-        const recipientColumn = advance.recipientType === "teacher" ? "teacherId" : "salespersonId";
-        const currentBalance = await getCurrentBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
-
-        await db.insert(ledgerTable).values({
-          [recipientColumn]: advance.recipientId,
-          mainLedgerId: null,
-          advancePaymentId: advance.id,
-          sourceType: "advance_settlement",
-          type: "advance",
-          itemName: `${advance.itemName}（核銷）`,
-          categoryId: null,
-          categoryName: "代墊款核銷",
-          originalAmount: advance.amount,
-          personalAmount: advance.amount,
-          personalBalance: currentBalance - advance.amount,
-          editedBy: ctx.user.id,
-        } as any);
-      }
-
-      await writeAudit(db, ctx.user.id, "settle", "advancePayment", input.id, advance, { status: "settled", mainLedgerId });
-      const [updated] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
-      return updated;
-    }),
-
-  /** 一次還清某位出貨員所有（或勾選的）未核銷代墊 */
-  settleShipper: staffProcedure
-    .input(z.object({ shipperId: z.number(), ids: z.array(z.number()).optional() }))
-    .mutation(async ({ ctx, input }) => {
-      const conditions = [
-        eq(advancePayments.recipientType, "shipper"),
-        eq(advancePayments.recipientId, input.shipperId),
-        eq(advancePayments.status, "unsettled"),
-        eq(advancePayments.reviewStatus, "approved"),
-      ];
-      if (input.ids?.length) conditions.push(inArray(advancePayments.id, input.ids));
-      const list = await ctx.db.select().from(advancePayments).where(and(...conditions));
-      if (!list.length) throw new TRPCError({ code: "BAD_REQUEST", message: "沒有未核銷的代墊" });
-      const entries = await settleShipperAdvances(ctx.db, ctx.user.id, list);
-      return { count: list.length, total: list.reduce((s: number, a: AdvanceRow) => s + a.amount, 0), entries: entries.length };
-    }),
-
   unsettle: staffProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
     const db = ctx.db;
     const [advance] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
     if (!advance) throw new TRPCError({ code: "NOT_FOUND", message: "代墊記錄不存在" });
     if (advance.status !== "settled") throw new TRPCError({ code: "BAD_REQUEST", message: "此代墊尚未核銷" });
-    if (advance.recipientType === "shipper" && advance.settledByMainLedgerId) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: `這筆是跟帳本 #${advance.settledByMainLedgerId} 一起核銷的，請到帳本刪除那筆支出，裡面的代墊會一起退回未核銷`,
-      });
-    }
-
-    if (advance.recipientType !== "shipper") {
-      const ledgerTable = ledgerTableOf(advance.recipientType);
+    const target = await subLedgerOf(db, advance);
+    {
+      const ledgerTable = ledgerTableOf(target.type);
       // 刪除獨立沖銷分錄（情境 B 產生的）
       const settlementRows = await db
         .select()
@@ -474,9 +363,7 @@ export const advancePaymentsRouter = router({
       .set({ status: "unsettled", settledByMainLedgerId: null, settledAt: null, updatedAt: Date.now() })
       .where(eq(advancePayments.id, input.id));
 
-    if (advance.recipientType !== "shipper") {
-      await recalculateBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
-    }
+    await recalculateBalance(db, target.type, target.id);
     await writeAudit(db, ctx.user.id, "unsettle", "advancePayment", input.id, advance, { status: "unsettled" });
 
     const [updated] = await db.select().from(advancePayments).where(eq(advancePayments.id, input.id)).limit(1);
@@ -492,15 +379,11 @@ export const advancePaymentsRouter = router({
     }
     assertCanEdit(ctx.user, advance);
 
-    if (advance.recipientType !== "shipper") {
-      const ledgerTable = ledgerTableOf(advance.recipientType);
-      await db.delete(ledgerTable).where(eq(ledgerTable.advancePaymentId, advance.id));
-    }
+    const target = await subLedgerOf(db, advance);
+    const ledgerTable = ledgerTableOf(target.type);
+    await db.delete(ledgerTable).where(eq(ledgerTable.advancePaymentId, advance.id));
     await db.delete(advancePayments).where(eq(advancePayments.id, input.id));
-
-    if (advance.recipientType !== "shipper") {
-      await recalculateBalance(db, advance.recipientType as "teacher" | "salesperson", advance.recipientId);
-    }
+    await recalculateBalance(db, target.type, target.id);
     await writeAudit(db, ctx.user.id, "delete", "advancePayment", input.id, advance, null);
   }),
 });

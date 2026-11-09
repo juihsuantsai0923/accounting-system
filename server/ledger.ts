@@ -1,4 +1,4 @@
-import { teacherLedger, salespersonLedger, auditLog, mainLedger, advancePayments } from "./schema";
+import { teacherLedger, salespersonLedger, auditLog, mainLedger } from "./schema";
 import { eq, asc, isNull } from "drizzle-orm";
 
 type Recipient = "teacher" | "salesperson";
@@ -94,13 +94,6 @@ export async function reserveTrail(db: any) {
   for (const tbl of [teacherLedger, salespersonLedger]) {
     const rows = await db.select().from(tbl);
     for (const r of rows as any[]) addOwed(r.mainLedgerId, r.createdAt, ledgerDelta(r));
-  }
-  // 出貨員沒有子記帳表，欠他的錢直接看代墊：審核通過算欠款，核銷時還掉
-  const shipperAdvances: any[] = await db.select().from(advancePayments).where(eq(advancePayments.recipientType, "shipper"));
-  for (const a of shipperAdvances) {
-    if (a.reviewStatus !== "approved") continue;
-    addOwed(null, a.createdAt, a.amount);
-    if (a.status === "settled") addOwed(a.settledByMainLedgerId, a.settledAt ?? a.createdAt, -a.amount);
   }
   timed.sort((a, b) => a.at - b.at);
 
