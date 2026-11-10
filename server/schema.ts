@@ -307,6 +307,9 @@ export const revenueSettings = sqliteTable("revenue_settings", {
   // 公積金最低水位、補稅準備（凍結，公積金的一部分，先標記不可用）
   reserveFloor: integer("reserve_floor").notNull().default(100000),
   reserveFrozen: integer("reserve_frozen").notNull().default(37000),
+  // 登記前帳款分期：稅籍登記日以前入帳的，從第一期（月底）起平均分幾期發，最後一期結清
+  preregInstallments: integer("prereg_installments").notNull().default(2),
+  preregFirstPayday: text("prereg_first_payday").notNull().default("2026-11-30"),
   updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
 });
 

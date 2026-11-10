@@ -47,6 +47,8 @@ export const revenueSettingsRouter = router({
         registrationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
         reserveFloor: z.number().int().min(0),
         reserveFrozen: z.number().int().min(0),
+        preregInstallments: z.number().int().min(1).max(24).optional(),
+        preregFirstPayday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -57,6 +59,8 @@ export const revenueSettingsRouter = router({
         registrationDate: input.registrationDate,
         reserveFloor: input.reserveFloor,
         reserveFrozen: input.reserveFrozen,
+        ...(input.preregInstallments === undefined ? {} : { preregInstallments: input.preregInstallments }),
+        ...(input.preregFirstPayday === undefined ? {} : { preregFirstPayday: input.preregFirstPayday }),
         updatedAt: Date.now(),
       };
       await db.update(revenueSettings).set(values).where(eq(revenueSettings.id, 1));

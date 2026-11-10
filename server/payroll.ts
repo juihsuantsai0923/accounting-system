@@ -12,6 +12,9 @@ import { ledgerDelta } from "./ledger";
  *     入帳就到期，當月月底發。
  *   部分入帳（main_ledger.unpaid_amount）：還沒收到的那部分學費對應的分潤不算到期；補收後（payment_receipts）那部分從收到那天起算。
  * 子記帳表餘額不變；已發放＝薪水撥款（子記帳表 distribution／expense）。已發放比已到期多＝預付，不算欠款也不顯示負數。
+ * 登記前帳款分期（prereg_installments 期，從 prereg_first_payday 起）：每期計畫＝登記前已到期還沒發的 ÷ 剩下的期數（四捨五入），
+ *   最後一期結清（餘數、期間新入帳、補繳後到期的都在這期）；登記後入帳的照一般規則在同一個月底另外加上去。
+ *   已發放先抵登記前的帳。下次發薪以後的計畫，假設之前每期都照計畫發。
  */
 
 const DAY = 86400000;
@@ -130,6 +133,11 @@ export async function loadVesting(db: any) {
   /** 最後一個要列的發薪日：有攤提的衝刺班結束後的下一次，至少是下一個發薪日 */
   function lastPayday(rows: LedgerRowLike[], now = Date.now()) {
     let last = nextPayday(now);
+    // 登記前帳款分期的最後一期
+    if (settings.preregInstallments > 1 && rows.some((r) => r.createdAt < vestFrom)) {
+      const lastInst = monthEnd(addMonth(settings.preregFirstPayday.slice(0, 7), settings.preregInstallments - 1));
+      if (lastInst > last) last = lastInst;
+    }
     // 入帳就到期的：入帳（或補收）那個月的月底
     const firstAfter = (ts: number) => paydayOfPayout(ts);
     for (const r of rows) {
@@ -146,7 +154,9 @@ export async function loadVesting(db: any) {
     return last;
   }
 
-  return { vestedAt, lastPayday };
+  /** 稅籍登記日以前入帳的（分期發） */
+  const isPre = (r: LedgerRowLike) => r.createdAt < vestFrom;
+  return { vestedAt, lastPayday, isPre, installments: settings.preregInstallments, firstInstallment: settings.preregFirstPayday };
 }
 
 export interface PersonSchedule {
@@ -154,19 +164,26 @@ export interface PersonSchedule {
   recipientId: number;
   name: string;
   isShipper: boolean;
-  /** 每個發薪日：累計到期、該次新到期（應發）、該次實際發放、到期基準之前已發的 */
-  paydays: { payday: string; cumVested: number; due: number; paid: number; paidBeforeCutoff: number }[];
+  /** 每個發薪日：累計到期、該月新到期、本期計畫應發（含分期）、該月實際發放、到期基準之前已發的 */
+  paydays: { payday: string; cumVested: number; due: number; plan: number; paid: number; paidBeforeCutoff: number }[];
   /** 子記帳表餘額（被多付時是負數，畫面上不顯示負數，改顯示預付） */
   balance: number;
   totalPaid: number;
-  /** payable＝下次可發；prepaid＝已發放超過已到期的部分（預付）；notYetDue＝還沒到期、也還沒預付的 */
-  next: { payday: string; payable: number; prepaid: number; notYetDue: number };
+  /**
+   * payable＝這次（下次發薪日）還要發的計畫金額；later＝已到期、但分期排到之後幾期的；
+   * prepaid＝已發放超過已到期的部分（預付）；notYetDue＝還沒到期的
+   */
+  next: { payday: string; payable: number; later: number; prepaid: number; notYetDue: number };
 }
 
 async function rowsOf(db: any, recipientType: Recipient, id: number): Promise<any[]> {
   return recipientType === "teacher"
     ? db.select().from(teacherLedger).where(eq(teacherLedger.teacherId, id)).orderBy(asc(teacherLedger.createdAt), asc(teacherLedger.id))
     : db.select().from(salespersonLedger).where(eq(salespersonLedger.salespersonId, id)).orderBy(asc(salespersonLedger.createdAt), asc(salespersonLedger.id));
+}
+
+function monthsBetween(a: string, b: string) {
+  return (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7));
 }
 
 /** 一個人的發薪排程 */
@@ -179,29 +196,60 @@ export function scheduleFor(
 ): PersonSchedule {
   const payouts = rows.filter(isPayout);
   const paidIn = (pd: string) => payouts.filter((r) => paydayOfPayout(r.createdAt) === pd).reduce((s, r) => s + r.personalAmount, 0);
-  const cumAt = (cutoff: number) => Math.round(rows.reduce((s, r) => s + vest.vestedAt(r, cutoff), 0));
+  const pre = rows.filter((r) => vest.isPre(r));
+  const post = rows.filter((r) => !vest.isPre(r));
+  const sumAt = (list: any[], cutoff: number) => Math.round(list.reduce((s, r) => s + vest.vestedAt(r, cutoff), 0));
+  const np = nextPayday(now);
+  const n = vest.installments;
+  /** 這一期是登記前帳款的第幾期（不在分期期間＝null） */
+  const instIndex = (pd: string) => {
+    if (n <= 1 || pd < vest.firstInstallment) return null;
+    const i = monthsBetween(vest.firstInstallment, pd) + 1;
+    return i <= n ? i : null;
+  };
   let prev = 0;
+  let paidSoFar = 0; // 之前各期已發（下次發薪以後用計畫金額推估）
+  let nextLater = 0;
   const paydays = days.map((payday) => {
     const cutoff = cutoffOf(payday);
-    const cumVested = cumAt(cutoff);
+    const vPre = sumAt(pre, cutoff);
+    const vPost = sumAt(post, cutoff);
+    const cumVested = vPre + vPost;
     const due = cumVested - prev;
     prev = cumVested;
+    // 已發放先抵登記前的帳
+    const prePaid = Math.min(paidSoFar, vPre);
+    const preRem = Math.max(0, vPre - prePaid);
+    const postRem = Math.max(0, vPost - (paidSoFar - prePaid));
+    const i = instIndex(payday);
+    const preDue = i && i < n ? Math.round(preRem / (n - i + 1)) : preRem;
+    const plan = preDue + postRem;
+    if (payday === np) nextLater = preRem - preDue;
+    const paid = paidIn(payday);
+    paidSoFar += payday < np ? paid : Math.max(paid, plan);
     const paidBeforeCutoff = payouts.filter((r) => r.createdAt < cutoff).reduce((s, r) => s + r.personalAmount, 0);
-    return { payday, cumVested, due, paid: paidIn(payday), paidBeforeCutoff };
+    return { payday, cumVested, due, plan, paid, paidBeforeCutoff };
   });
   const totalPaid = payouts.reduce((s, r) => s + r.personalAmount, 0);
   const balance = rows.reduce((s, r) => s + ledgerDelta(r), 0);
-  const np = nextPayday(now);
-  const cum = paydays.find((p) => p.payday === np)?.cumVested ?? cumAt(cutoffOf(np));
-  const payable = Math.max(0, cum - totalPaid);
+  const cur = paydays.find((p) => p.payday === np);
+  const cum = cur?.cumVested ?? sumAt(rows, cutoffOf(np));
+  const payable = cur ? Math.max(0, cur.plan - cur.paid) : Math.max(0, cum - totalPaid);
   const prepaid = Math.max(0, totalPaid - cum);
-  return { ...person, paydays, balance, totalPaid, next: { payday: np, payable, prepaid, notYetDue: Math.max(0, balance - payable) } };
+  const later = Math.max(0, Math.min(nextLater, balance - payable));
+  return {
+    ...person,
+    paydays,
+    balance,
+    totalPaid,
+    next: { payday: np, payable, later, prepaid, notYetDue: Math.max(0, balance - payable - later) },
+  };
 }
 
 /** 下次發薪以後、每個人都是 0 的欄位不列 */
 function trimDays(days: string[], schedules: PersonSchedule[], next: string) {
   let keep = days.length;
-  while (keep > 0 && days[keep - 1] > next && schedules.every((s) => (s.paydays[keep - 1]?.due ?? 0) === 0)) keep--;
+  while (keep > 0 && days[keep - 1] > next && schedules.every((s) => (s.paydays[keep - 1]?.due ?? 0) === 0 && (s.paydays[keep - 1]?.plan ?? 0) === 0)) keep--;
   return keep;
 }
 

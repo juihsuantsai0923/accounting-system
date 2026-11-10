@@ -88,6 +88,8 @@ test("登記後的衝刺班按天攤提到月底；插班生入班前的天數�
 
 test("部分入帳：沒收到的學費不到期，補收後那個月底才發；撥款扣掉可發", async () => {
   const { db, sqlite, admin, dateEntry } = setup();
+  // 這裡不分期，只看到期
+  await admin.revenueSettings.updateTaxReserve({ vatRatePercent: 5, registrationDate: null, reserveFloor: 0, reserveFrozen: 0, preregInstallments: 1 });
   const a = await admin.mainLedger.createBookIncome({ lines: [{ bookId: 26, qty: 10 }], couponId: null, amount: 8800 });
   dateEntry(a.entry.id, "2026-10-10");
   await admin.mainLedger.update({ id: a.entry.id, itemName: "地科刷題本×10", unpaidAmount: 4400 });
@@ -111,6 +113,51 @@ test("部分入帳：沒收到的學費不到期，補收後那個月底才發�
   assert.equal(p.totalPaid, 2000);
   assert.equal(p.next.payable, Math.round(full / 2) - 2000);
   assert.equal(p.balance, full - 2000);
+});
+
+test("登記前帳款分兩期：11/30 發一半、12/31 結清（含 12 月新入帳）；少發的下一期補", async () => {
+  const { db, admin, dateEntry } = setup();
+  const a = await admin.mainLedger.createTutoringIncome({ items: [{ courseId: 4, amount: 27000 }] });
+  dateEntry(a.entry.id, "2026-10-20");
+  const b = await admin.mainLedger.createBookIncome({ lines: [{ bookId: 6, qty: 1 }], couponId: null, amount: 1581 });
+  dateEntry(b.entry.id, "2026-12-05");
+  const cai = async () => (await payrollTable(db, NOW)).people.find((p) => p.name === "蔡睿軒")!;
+  let p = await cai();
+  const v1 = p.paydays[0].cumVested;
+  const v2 = p.paydays[1].cumVested;
+  assert.deepEqual(p.paydays.map((d) => d.payday), ["2026-11-30", "2026-12-31"]);
+  assert.equal(p.paydays[0].plan, Math.round(v1 / 2));
+  assert.equal(p.paydays[1].plan, v2 - Math.round(v1 / 2)); // 剩下的全部＋12 月新入帳的
+  assert.equal(p.next.payable, Math.round(v1 / 2));
+  assert.equal(p.next.later, v1 - Math.round(v1 / 2));
+  // 11/30 只發了 1000：12/31 把少發的補上
+  await admin.payroll.markPaid({ recipientType: "teacher", recipientId: 2, amount: 1000, payday: "2026-11-30", paidDate: "2026-11-30" });
+  p = await cai();
+  assert.equal(p.next.payable, Math.round(v1 / 2) - 1000);
+  assert.equal(p.paydays[1].plan, v2 - Math.round(v1 / 2)); // 推估：假設 11/30 照計畫發完
+  const t = await payrollTable(db, at("2026-12-10"));
+  const q = t.people.find((x) => x.name === "蔡睿軒")!;
+  assert.equal(q.next.payday, "2026-12-31");
+  assert.equal(q.next.payable, v2 - 1000); // 12/31 結清
+});
+
+test("登記日 12/15：12/31 那期＝登記前剩下的全部＋登記後當月已到期的，分開算再加總", async () => {
+  const { db, admin, dateEntry } = setup();
+  await admin.revenueSettings.updateTaxReserve({ vatRatePercent: 0, registrationDate: "2026-12-15", reserveFloor: 0, reserveFrozen: 0, preregInstallments: 2 });
+  const a = await admin.mainLedger.createTutoringIncome({ items: [{ courseId: 4, amount: 27000 }] });
+  dateEntry(a.entry.id, "2026-10-20"); // 登記前：入帳就到期，分兩期
+  const b = await admin.mainLedger.createTutoringIncome({ items: [{ courseId: 4, amount: 27000 }] });
+  dateEntry(b.entry.id, "2026-12-20"); // 登記後：按天攤提到 12 月底
+  const t = await payrollTable(db, NOW);
+  const cai = t.people.find((p) => p.name === "蔡睿軒")!;
+  const share = 27000 - Math.round(27000 * 0.2) + Math.floor(Math.round(27000 * 0.1) / 3 + 1e-9); // 主理＋行政費
+  const pre = share;
+  const post = Math.round(share * ((twDayStart("2027-01-01") - twDayStart("2026-10-31")) / PERIOD));
+  assert.equal(cai.paydays[0].plan, Math.round(pre / 2));
+  assert.equal(cai.paydays[1].plan, pre - Math.round(pre / 2) + post);
+  // 之後只剩登記後那筆按天到期
+  assert.equal(cai.paydays[2].payday, "2027-01-31");
+  assert.equal(cai.paydays[2].plan, cai.paydays[2].due);
 });
 
 test("發薪表權限：只有管理員看得到全部；老師、出貨員只看得到自己", async () => {

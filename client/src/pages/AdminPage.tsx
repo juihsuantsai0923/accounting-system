@@ -747,7 +747,7 @@ function TaxReserveSettingsAdmin() {
       utils.payroll.invalidate();
     },
   });
-  const [form, setForm] = useState({ vatRatePercent: "5", registrationDate: "", reserveFloor: "100000", reserveFrozen: "37000" });
+  const [form, setForm] = useState({ vatRatePercent: "5", registrationDate: "", reserveFloor: "100000", reserveFrozen: "37000", preregInstallments: "2", preregFirstPayday: "2026-11-30" });
   const [msg, setMsg] = useState<string | null>(null);
   useEffect(() => {
     const s: any = settingsQuery.data?.settings;
@@ -757,6 +757,8 @@ function TaxReserveSettingsAdmin() {
       registrationDate: s.registrationDate ?? "",
       reserveFloor: String(s.reserveFloor),
       reserveFrozen: String(s.reserveFrozen),
+      preregInstallments: String(s.preregInstallments ?? 2),
+      preregFirstPayday: s.preregFirstPayday ?? "2026-11-30",
     });
   }, [settingsQuery.data]);
   return (
@@ -765,6 +767,7 @@ function TaxReserveSettingsAdmin() {
         <p>稅籍登記日當天或之後入帳的收入，先扣「實收 × 5/105」放稅金準備，剩下的再照上面的比例分（網紅佣金也用扣稅後的金額算）。登記日以前的帳不扣、不重算。</p>
         <p>補稅準備（凍結）是公積金的一部分，先標記不能用；問完記帳士要解除就改成 0。</p>
         <p>發薪：每月月底發當月底以前到期的；登記日以後入帳的衝刺班才依課程期間按天攤提，登記前的帳入帳就到期。</p>
+        <p>登記前帳款分期：登記日以前入帳的帳，從第一期起每期發「還沒發的 ÷ 剩下的期數」，最後一期結清；登記後的帳照一般規則在同一個月底另外加上。</p>
       </div>
       <form
         className="grid grid-cols-1 sm:grid-cols-5 gap-4 items-end"
@@ -777,6 +780,8 @@ function TaxReserveSettingsAdmin() {
               registrationDate: form.registrationDate || null,
               reserveFloor: parseInt(form.reserveFloor || "0", 10),
               reserveFrozen: parseInt(form.reserveFrozen || "0", 10),
+              preregInstallments: Math.max(1, parseInt(form.preregInstallments || "1", 10)),
+              preregFirstPayday: form.preregFirstPayday,
             });
             setMsg("已儲存");
           } catch (err: any) {
@@ -799,6 +804,19 @@ function TaxReserveSettingsAdmin() {
         <div>
           <label className="label">補稅準備（凍結）</label>
           <input className="input" inputMode="numeric" value={form.reserveFrozen} onChange={(e) => setForm({ ...form, reserveFrozen: e.target.value.replace(/[^\d]/g, "") })} />
+        </div>
+        <div>
+          <label className="label">登記前帳款分幾期發</label>
+          <input
+            className="input"
+            inputMode="numeric"
+            value={form.preregInstallments}
+            onChange={(e) => setForm({ ...form, preregInstallments: e.target.value.replace(/[^\d]/g, "") })}
+          />
+        </div>
+        <div>
+          <label className="label">第一期（月底）</label>
+          <input className="input" type="date" value={form.preregFirstPayday} onChange={(e) => setForm({ ...form, preregFirstPayday: e.target.value })} />
         </div>
         <button className="btn-primary" type="submit" disabled={update.isPending}>
           {update.isPending ? "儲存中..." : "儲存"}

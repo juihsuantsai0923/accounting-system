@@ -24,10 +24,13 @@ export interface RevenueSettingsRow {
   /** 公積金最低水位；補稅準備（凍結，公積金的一部分先標記不可用） */
   reserveFloor: number;
   reserveFrozen: number;
+  /** 登記前帳款分期：期數、第一期（月底 YYYY-MM-DD） */
+  preregInstallments: number;
+  preregFirstPayday: string;
 }
 
 export const DEFAULT_REVENUE_SETTINGS = { reserveRate: 0.1, adminFeeRate: 0.2, bookReserveRate: 0.35 };
-const DEFAULT_EXTRA = { vatRate: 0.05, registrationDate: null as string | null, reserveFloor: 100000, reserveFrozen: 37000 };
+const DEFAULT_EXTRA = { vatRate: 0.05, registrationDate: null as string | null, reserveFloor: 100000, reserveFrozen: 37000, preregInstallments: 2, preregFirstPayday: "2026-11-30" };
 
 /** 台灣時間某天 00:00 的時間戳（YYYY-MM-DD） */
 export function twDayStart(date: string) {
@@ -74,6 +77,8 @@ export async function getRevenueSettings(db: any): Promise<RevenueSettingsRow> {
       registrationDate: r.registrationDate ?? null,
       reserveFloor: r.reserveFloor ?? DEFAULT_EXTRA.reserveFloor,
       reserveFrozen: r.reserveFrozen ?? DEFAULT_EXTRA.reserveFrozen,
+      preregInstallments: r.preregInstallments ?? DEFAULT_EXTRA.preregInstallments,
+      preregFirstPayday: r.preregFirstPayday ?? DEFAULT_EXTRA.preregFirstPayday,
     };
   await db.insert(revenueSettings).values({ id: 1, ...DEFAULT_REVENUE_SETTINGS, updatedAt: Date.now() });
   return { id: 1, ...DEFAULT_REVENUE_SETTINGS, ...DEFAULT_EXTRA };

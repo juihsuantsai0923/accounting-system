@@ -26,7 +26,7 @@ const tot = t.paydays.map(() => 0);
 for (const p of t.people) {
   console.log(
     `${p.name}${p.isShipper ? "（出貨員）" : ""}`,
-    p.paydays.map((d) => d.due).join(" "),
+    p.paydays.map((d) => `${d.plan}(到期${d.due})`).join(" "),
     "| 合計",
     p.paydays.reduce((s, d) => s + d.due, 0),
     "餘額",
@@ -38,7 +38,7 @@ for (const p of t.people) {
     "未到期",
     p.next.notYetDue
   );
-  p.paydays.forEach((d, i) => (tot[i] += d.due));
+  p.paydays.forEach((d, i) => (tot[i] += d.plan));
 }
 console.log("合計", tot.join(" "));
 console.log("稅金準備", await taxReserveOf(db), "公積金", (await reserveTrail(db)).current);

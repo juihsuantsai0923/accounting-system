@@ -24,8 +24,8 @@ type Person = {
   isShipper: boolean;
   balance: number;
   totalPaid: number;
-  next: { payday: string; payable: number; prepaid: number; notYetDue: number };
-  paydays: { payday: string; due: number; paid: number }[];
+  next: { payday: string; payable: number; later: number; prepaid: number; notYetDue: number };
+  paydays: { payday: string; cumVested: number; due: number; plan: number; paid: number }[];
 };
 
 /** 記錄發放：金額預設＝這次可發，可改；按下去在帳本記一筆該人的薪水撥款 */
@@ -74,7 +74,7 @@ function PayButton({ p, payday }: { p: Person; payday: string }) {
 
 /**
  * 發薪表（只有管理員看得到）：每個人一列、每個月底一欄。
- * 應發＝那個月新到期的金額，已發＝那個月的薪水撥款。下次發薪那一欄可以直接記錄發放。
+ * 大字＝本期應發（計畫，含登記前帳款分期），小字＝累計到期、已發。下次發薪那一欄可以直接記錄發放（預設帶本期還要發的）。
  */
 export default function PayrollPage() {
   const { user } = useAuth();
@@ -85,14 +85,25 @@ export default function PayrollPage() {
 
   function download() {
     if (!t) return;
-    const headers = ["身份", "姓名", ...t.paydays.flatMap((pd) => [`${pd} 應發`, `${pd} 已發`]), "已發合計", "公司欠款", `${t.nextPayday} 可發`, "已預付", "尚未到期"];
+    const headers = [
+      "身份",
+      "姓名",
+      ...t.paydays.flatMap((pd) => [`${pd} 本期應發（計畫）`, `${pd} 累計到期`, `${pd} 已發`]),
+      "已發合計",
+      "公司欠款",
+      `${t.nextPayday} 還要發`,
+      "分期之後發",
+      "已預付",
+      "尚未到期",
+    ];
     const rows = people.map((p) => [
       p.recipientType === "teacher" ? "教師" : p.isShipper ? "出貨員" : "推銷者",
       p.name,
-      ...p.paydays.flatMap((d) => [d.due, d.paid]),
+      ...p.paydays.flatMap((d) => [d.plan, d.cumVested, d.paid]),
       p.totalPaid,
       Math.max(0, p.balance),
       p.next.payable,
+      p.next.later,
       p.next.prepaid,
       p.next.notYetDue,
     ]);
@@ -112,7 +123,8 @@ export default function PayrollPage() {
       </div>
       <p className="text-sm text-slate-600">
         每月月底發「當月底以前已到期 − 已發放」。稅籍登記日以後入帳的衝刺班依課程期間按天攤提到月底；登記前的帳、書籍、線上課程、試上、代墊入帳就到期，當月月底發；
-        家長還沒繳的學費，收到後那個月底才發。先發了還沒到期的＝已預付。之後的欄位是依目前的帳預估。
+        家長還沒繳的學費，收到後那個月底才發。登記前的帳依「分潤參數」的分期平均分幾次發，最後一期結清；登記後的帳在同一個月底另外加上。
+        大字＝本期應發（計畫），小字＝累計到期、已發。先發了還沒到期的＝已預付。之後的欄位是依目前的帳、假設每期照計畫發的預估。
       </p>
       {!t ? (
         <div className="text-slate-400">載入中…</div>
@@ -146,11 +158,12 @@ export default function PayrollPage() {
                     const past = d.payday < t.nextPayday;
                     return (
                       <td key={d.payday} className={`px-3 py-2 text-right tabular-nums ${isNext ? "bg-amber-50" : ""} ${past || isNext ? "" : "text-slate-400"}`}>
-                        <div>{fmt(d.due)}</div>
+                        <div className="text-base font-semibold text-brand-700">{fmt(d.plan)}</div>
+                        <div className="text-[11px] text-slate-400">累計到期 {fmt(d.cumVested)}</div>
                         {d.paid > 0 && <div className="text-xs text-emerald-700">已發 {fmt(d.paid)}</div>}
                         {isNext && (
                           <>
-                            <div className="text-xs text-amber-800">可發 {fmt(p.next.payable)}</div>
+                            {d.paid > 0 && <div className="text-xs text-amber-800">還要發 {fmt(p.next.payable)}</div>}
                             {p.next.prepaid > 0 && <div className="text-xs text-emerald-700">已預付 {fmt(p.next.prepaid)}</div>}
                             {manage && p.next.payable > 0 && <PayButton p={p} payday={d.payday} />}
                           </>
@@ -166,9 +179,12 @@ export default function PayrollPage() {
                 <td className="px-3 py-2 sticky left-0 bg-white">合計</td>
                 {t.paydays.map((pd, i) => (
                   <td key={pd} className={`px-3 py-2 text-right tabular-nums ${pd === t.nextPayday ? "bg-amber-50" : ""}`}>
-                    <div>{fmt(sum((p) => p.paydays[i]?.due ?? 0))}</div>
+                    <div className="text-base text-brand-700">{fmt(sum((p) => p.paydays[i]?.plan ?? 0))}</div>
+                    <div className="text-[11px] font-normal text-slate-400">累計到期 {fmt(sum((p) => p.paydays[i]?.cumVested ?? 0))}</div>
                     {sum((p) => p.paydays[i]?.paid ?? 0) > 0 && <div className="text-xs text-emerald-700">已發 {fmt(sum((p) => p.paydays[i]?.paid ?? 0))}</div>}
-                    {pd === t.nextPayday && <div className="text-xs text-amber-800">可發 {fmt(sum((p) => p.next.payable))}</div>}
+                    {pd === t.nextPayday && sum((p) => p.paydays[i]?.paid ?? 0) > 0 && (
+                      <div className="text-xs text-amber-800">還要發 {fmt(sum((p) => p.next.payable))}</div>
+                    )}
                   </td>
                 ))}
                 <td className="px-3 py-2 text-right tabular-nums">{fmt(sum((p) => Math.max(0, p.balance)))}</td>
