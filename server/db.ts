@@ -10,6 +10,8 @@ import {
   mainLedgerColumnMigrations,
   userColumnMigrations,
   advanceColumnMigrations,
+  teacherLedgerColumnMigrations,
+  salespersonLedgerColumnMigrations,
 } from "./schema-sql";
 import { SEED_BOOKS, SEED_COUPONS } from "./catalogSeed";
 
@@ -41,6 +43,8 @@ applyColumnMigrations("revenue_settings", revenueSettingsColumnMigrations);
 applyColumnMigrations("main_ledger", mainLedgerColumnMigrations);
 applyColumnMigrations("users", userColumnMigrations);
 applyColumnMigrations("advance_payments", advanceColumnMigrations);
+applyColumnMigrations("teacher_ledger", teacherLedgerColumnMigrations);
+applyColumnMigrations("salesperson_ledger", salespersonLedgerColumnMigrations);
 
 // 書籍與優惠碼初始資料（已存在同名／同代碼就略過，不會覆蓋管理面板改過的價格）
 {

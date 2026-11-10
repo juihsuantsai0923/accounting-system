@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { books, ledgerDistribution, mainLedger, salespersonLedger, teacherLedger } from "./schema";
-import { getRevenueSettings, teacherIdForSubject } from "./revenueCalc";
+import { getRevenueSettings, teacherIdForSubject, vatOf } from "./revenueCalc";
 import { recalculateBalance } from "./ledger";
 
 /**
@@ -38,7 +38,9 @@ export async function recalcBookShares(db: any, dryRun = false) {
       if (!teacherId) continue;
       const row = rows.find((r) => r.teacherId === teacherId && r.sourceType === "distribution" && String(r.itemName).endsWith("（書籍分潤）"));
       if (!row) continue;
-      const after = p.amount - Math.round(p.amount * (settings.bookReserveRate + settings.adminFeeRate));
+      // 登記日以後入帳的先扣營業稅再分（跟入帳時同一個算法）
+      const net = p.amount - vatOf(settings, p.amount, e.createdAt);
+      const after = net - Math.round(net * (settings.bookReserveRate + settings.adminFeeRate));
       if (after === row.personalAmount || after <= 0) continue;
       changes.push({ entryId: e.id, teacherId, name: p.name, amount: p.amount, before: row.personalAmount, after });
       if (dryRun) continue;

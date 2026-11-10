@@ -163,6 +163,13 @@ export const createTableStatements: string[] = [
     updated_at INTEGER NOT NULL
   )`,
 
+  `CREATE TABLE IF NOT EXISTS payment_receipts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    main_ledger_id INTEGER NOT NULL,
+    amount INTEGER NOT NULL,
+    received_at INTEGER NOT NULL
+  )`,
+
   `CREATE TABLE IF NOT EXISTS advance_payments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     recipient_type TEXT NOT NULL,
@@ -297,6 +304,15 @@ export const mainLedgerColumnMigrations: { column: string; statement: string }[]
   { column: "breakdown", statement: `ALTER TABLE main_ledger ADD COLUMN breakdown TEXT` },
   { column: "edited_at", statement: `ALTER TABLE main_ledger ADD COLUMN edited_at INTEGER` },
   { column: "unpaid_amount", statement: `ALTER TABLE main_ledger ADD COLUMN unpaid_amount INTEGER NOT NULL DEFAULT 0` },
+  { column: "tax_amount", statement: `ALTER TABLE main_ledger ADD COLUMN tax_amount INTEGER NOT NULL DEFAULT 0` },
+];
+
+export const teacherLedgerColumnMigrations: { column: string; statement: string }[] = [
+  { column: "vest_course_id", statement: `ALTER TABLE teacher_ledger ADD COLUMN vest_course_id INTEGER` },
+];
+
+export const salespersonLedgerColumnMigrations: { column: string; statement: string }[] = [
+  { column: "vest_course_id", statement: `ALTER TABLE salesperson_ledger ADD COLUMN vest_course_id INTEGER` },
 ];
 
 export const userColumnMigrations: { column: string; statement: string }[] = [
@@ -318,4 +334,8 @@ export const revenueSettingsColumnMigrations: { column: string; statement: strin
   { column: "reserve_rate", statement: `ALTER TABLE revenue_settings ADD COLUMN reserve_rate REAL NOT NULL DEFAULT 0.1` },
   { column: "admin_fee_rate", statement: `ALTER TABLE revenue_settings ADD COLUMN admin_fee_rate REAL NOT NULL DEFAULT 0.1` },
   { column: "book_reserve_rate", statement: `ALTER TABLE revenue_settings ADD COLUMN book_reserve_rate REAL NOT NULL DEFAULT 0.25` },
+  { column: "vat_rate", statement: `ALTER TABLE revenue_settings ADD COLUMN vat_rate REAL NOT NULL DEFAULT 0.05` },
+  { column: "registration_date", statement: `ALTER TABLE revenue_settings ADD COLUMN registration_date TEXT` },
+  { column: "reserve_floor", statement: `ALTER TABLE revenue_settings ADD COLUMN reserve_floor INTEGER NOT NULL DEFAULT 100000` },
+  { column: "reserve_frozen", statement: `ALTER TABLE revenue_settings ADD COLUMN reserve_frozen INTEGER NOT NULL DEFAULT 37000` },
 ];

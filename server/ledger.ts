@@ -74,13 +74,13 @@ export async function getCurrentBalance(db: any, recipientType: Recipient, recip
 }
 
 /**
- * 帳本每一筆記完後的剩餘公積金，跟儀表板公積金同一個算法：帳上餘額 − 公司欠所有人的錢（含代墊）。
+ * 帳本每一筆記完後的剩餘公積金，跟儀表板公積金同一個算法：帳上餘額 − 公司欠所有人的錢（含代墊）− 稅金準備。
  * 分配、核銷跟著所屬的帳本記錄算；沒掛在帳本記錄上的（代墊入帳）依時間算進下一筆。
  * current＝現在的公積金，包含最後一筆帳本記錄之後才發生的代墊。
  */
 export async function reserveTrail(db: any) {
-  const entries: { id: number; type: string; amount: number; createdAt: number }[] = await db
-    .select({ id: mainLedger.id, type: mainLedger.type, amount: mainLedger.amount, createdAt: mainLedger.createdAt })
+  const entries: { id: number; type: string; amount: number; taxAmount: number; createdAt: number }[] = await db
+    .select({ id: mainLedger.id, type: mainLedger.type, amount: mainLedger.amount, taxAmount: mainLedger.taxAmount, createdAt: mainLedger.createdAt })
     .from(mainLedger)
     .where(isNull(mainLedger.deletedAt))
     .orderBy(asc(mainLedger.id));
@@ -102,7 +102,9 @@ export async function reserveTrail(db: any) {
   let next = 0;
   for (const e of entries) {
     while (next < timed.length && timed[next].at <= e.createdAt) reserve -= timed[next++].delta;
-    reserve += (e.type === "income" ? e.amount : -e.amount) - (linked.get(e.id) ?? 0);
+    // 營業稅：收入扣下來的、繳稅支出付掉的都進出「稅金準備」，不算公積金
+    const own = e.amount - (e.taxAmount ?? 0);
+    reserve += (e.type === "income" ? own : -own) - (linked.get(e.id) ?? 0);
     after.set(e.id, reserve);
   }
   while (next < timed.length) reserve -= timed[next++].delta;

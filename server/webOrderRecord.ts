@@ -1,6 +1,15 @@
 import { isNull } from "drizzle-orm";
 import { books, coupons, courses, mainLedger } from "./schema";
-import { computeBookIncome, computeCourseIncome, computeTutoringIncome, splitBookIncome, CourseIncomeError, INFLUENCER_START } from "./revenueCalc";
+import {
+  computeBookIncome,
+  computeCourseIncome,
+  computeTutoringIncome,
+  splitBookIncome,
+  CourseIncomeError,
+  INFLUENCER_START,
+  getRevenueSettings,
+  vatOf,
+} from "./revenueCalc";
 import { combineIncome, type IncomePart } from "./combineIncome";
 import { formatNote, parseNote } from "./noteFormat";
 
@@ -175,12 +184,30 @@ export async function planOrder(
       if (l === shippingToCourse) noteBits.push(`${l.targetName}含運費 ${shipping} 元`);
       if (l.kind === "tutoring") {
         const r = await computeTutoringIncome(db, { courseId: l.targetId!, amount });
-        entries.push({ source: "tutoring", name: r.course.name, categoryId: r.course.id, categoryName: "小班家教", amount, distributions: r.distributions, personalLabel: r.course.name });
+        entries.push({
+          source: "tutoring",
+          name: r.course.name,
+          categoryId: r.course.id,
+          categoryName: "小班家教",
+          amount,
+          distributions: r.distributions,
+          personalLabel: r.course.name,
+          tax: r.tax,
+        });
       } else {
         const influencer = salespersonId ? { listPrice: l.price, salespersonId } : undefined;
         const r = await computeCourseIncome(db, { courseId: l.targetId!, amount, influencer });
         noteBits.push(`${r.course.name} ${l.years} 年方案`);
-        entries.push({ source: "course", name: r.course.name, categoryId: r.course.id, categoryName: r.course.name, amount, distributions: r.distributions, personalLabel: r.course.name });
+        entries.push({
+          source: "course",
+          name: r.course.name,
+          categoryId: r.course.id,
+          categoryName: r.course.name,
+          amount,
+          distributions: r.distributions,
+          personalLabel: r.course.name,
+          tax: r.tax,
+        });
       }
     }
     if (bookLines.length) {
@@ -193,7 +220,16 @@ export async function planOrder(
       for (const g of await splitBookIncome(db, r.detail, goods, influencer)) entries.push({ source: "book", categoryName: "書籍", ...g });
       if (shipping) {
         noteBits.push(`運費 ${shipping} 元`);
-        entries.push({ source: "book", name: "運費", categoryId: r.detail[0].bookId, categoryName: "書籍", amount: shipping, distributions: [], personalLabel: "運費" });
+        entries.push({
+          source: "book",
+          name: "運費",
+          categoryId: r.detail[0].bookId,
+          categoryName: "書籍",
+          amount: shipping,
+          distributions: [],
+          personalLabel: "運費",
+          tax: vatOf(await getRevenueSettings(db), shipping),
+        });
       }
     }
   } catch (e) {

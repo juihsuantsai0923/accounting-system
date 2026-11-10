@@ -19,6 +19,7 @@ import { webOrdersRouter } from "./webOrders";
 import { recurringRouter } from "./recurring";
 import { notifyRouter } from "./notify";
 import { accountRequestsRouter } from "./accountRequests";
+import { payrollRouter } from "./payroll";
 
 export const appRouter = router({
   auth: authRouter,
@@ -41,6 +42,7 @@ export const appRouter = router({
   recurring: recurringRouter,
   notify: notifyRouter,
   accountRequests: accountRequestsRouter,
+  payroll: payrollRouter,
 });
 
 export type AppRouter = typeof appRouter;

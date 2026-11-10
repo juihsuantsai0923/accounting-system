@@ -10,6 +10,7 @@ import {
   incomeTypes,
   advancePayments,
   users,
+  paymentReceipts,
 } from "../schema";
 import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { parseNote } from "../noteFormat";
@@ -64,7 +65,18 @@ async function resolveCategoryName(db: any, type: "income" | "expense", category
 export async function insertIncome(
   db: any,
   userId: number,
-  entry: { itemName: string; categoryId: number; categoryName: string; amount: number; note?: string; incomeSource: string; breakdown?: string | null; unpaidAmount?: number },
+  entry: {
+    itemName: string;
+    categoryId: number;
+    categoryName: string;
+    amount: number;
+    note?: string;
+    incomeSource: string;
+    breakdown?: string | null;
+    unpaidAmount?: number;
+    /** 先扣下來放稅金準備的營業稅（登記日以前是 0） */
+    taxAmount?: number;
+  },
   distributions: DistItem[],
   personalItemName: (d: DistItem) => string
 ) {
@@ -97,6 +109,7 @@ export async function insertIncome(
       personalAmount: dist.amount,
       personalBalance: 0,
       editedBy: userId,
+      vestCourseId: dist.vestCourseId ?? null,
     } as any);
     affected.push({ recipientType: dist.type, recipientId: dist.recipientId });
   }
@@ -106,6 +119,9 @@ export async function insertIncome(
   await writeAudit(db, userId, "create", "mainLedger", row.id, null, row);
   return row;
 }
+
+/** 繳營業稅用的支出類型：從稅金準備付，不扣公積金 */
+export const VAT_EXPENSE_NAME = "營業稅";
 
 const bookLinesInput = z.array(z.object({ bookId: z.number(), qty: z.number().int().min(1).max(999) })).min(1);
 
@@ -128,6 +144,7 @@ export const mainLedgerRouter = router({
         attachmentUrl: mainLedger.attachmentUrl,
         incomeSource: mainLedger.incomeSource,
         unpaidAmount: mainLedger.unpaidAmount,
+        taxAmount: mainLedger.taxAmount,
         breakdown: mainLedger.breakdown,
         editedAt: mainLedger.editedAt,
         salaryTeacherId: expenseTypes.teacherId,
@@ -173,6 +190,8 @@ export const mainLedgerRouter = router({
       if (input.amount > before.unpaidAmount) throw new TRPCError({ code: "BAD_REQUEST", message: `這筆只剩 ${before.unpaidAmount} 元未入帳` });
       const unpaidAmount = before.unpaidAmount - input.amount;
       await ctx.db.update(mainLedger).set({ unpaidAmount, updatedAt: Date.now() }).where(eq(mainLedger.id, input.id));
+      // 補收的這部分，對應的分潤從今天起才算到期（下一個 15 日發）
+      await ctx.db.insert(paymentReceipts).values({ mainLedgerId: input.id, amount: input.amount, receivedAt: Date.now() });
       await writeAudit(ctx.db, ctx.user.id, "receivePayment", "mainLedger", input.id, { unpaidAmount: before.unpaidAmount }, { unpaidAmount });
       return { unpaidAmount };
     }),
@@ -203,6 +222,9 @@ export const mainLedgerRouter = router({
       const categoryName = await resolveCategoryName(db, input.type, input.categoryId);
       const prevBalance = await getLatestBalance(db);
       const newBalance = input.type === "income" ? prevBalance + amount : prevBalance - amount;
+      // 繳營業稅：從稅金準備付，不扣公積金
+      const isVatPayment = input.type === "expense" && categoryName === VAT_EXPENSE_NAME;
+      if (isVatPayment && distributions.length) throw new TRPCError({ code: "BAD_REQUEST", message: "營業稅支出不能分配給個人" });
 
       const [entry] = await db
         .insert(mainLedger)
@@ -216,6 +238,7 @@ export const mainLedgerRouter = router({
           note: input.note,
           attachmentUrl: input.attachmentUrl,
           incomeSource: input.type === "income" ? "other" : null,
+          taxAmount: isVatPayment ? amount : 0,
           editedBy: ctx.user.id,
           editedAt: Date.now(),
         })
@@ -305,7 +328,7 @@ export const mainLedgerRouter = router({
       const entry = await insertIncome(
         db,
         ctx.user.id,
-        { itemName: course.name, categoryId: course.id, categoryName: course.name, amount, note: input.note, incomeSource: "course" },
+        { itemName: course.name, categoryId: course.id, categoryName: course.name, amount, note: input.note, incomeSource: "course", taxAmount: result!.tax },
         distributions,
         (d) => `${course.name}（${d.itemNameSuffix}）`
       );
@@ -351,13 +374,23 @@ export const mainLedgerRouter = router({
           amount: r!.amount,
           distributions: r!.distributions,
           personalLabel: r!.course.name,
+          tax: r!.tax,
         });
       }
       const c = combineIncome(parts);
       const entry = await insertIncome(
         ctx.db,
         ctx.user.id,
-        { itemName: c.itemName, categoryId: c.categoryId, categoryName: c.categoryName, amount: c.amount, note: input.note, incomeSource: c.incomeSource, breakdown: c.breakdown },
+        {
+          itemName: c.itemName,
+          categoryId: c.categoryId,
+          categoryName: c.categoryName,
+          amount: c.amount,
+          note: input.note,
+          incomeSource: c.incomeSource,
+          breakdown: c.breakdown,
+          taxAmount: c.taxAmount,
+        },
         c.distributions,
         (d) => d.itemNameSuffix
       );
@@ -389,7 +422,7 @@ export const mainLedgerRouter = router({
       const entry = await insertIncome(
         ctx.db,
         ctx.user.id,
-        { itemName, categoryId: result!.course.id, categoryName: "試上", amount: result!.amount, note: input.note, incomeSource: "trial" },
+        { itemName, categoryId: result!.course.id, categoryName: "試上", amount: result!.amount, note: input.note, incomeSource: "trial", taxAmount: result!.tax },
         result!.distributions,
         (d) => `${itemName}（${d.itemNameSuffix}）`
       );
@@ -437,7 +470,7 @@ export const mainLedgerRouter = router({
       const entry = await insertIncome(
         ctx.db,
         ctx.user.id,
-        { itemName: r!.itemName, categoryId: c.categoryId, categoryName: "書籍", amount: c.amount, note, incomeSource: "book", breakdown: c.breakdown },
+        { itemName: r!.itemName, categoryId: c.categoryId, categoryName: "書籍", amount: c.amount, note, incomeSource: "book", breakdown: c.breakdown, taxAmount: c.taxAmount },
         c.distributions,
         (d) => d.itemNameSuffix
       );
@@ -485,8 +518,13 @@ export const mainLedgerRouter = router({
       const now = Date.now();
       const patch: any = { itemName: input.itemName, note: input.note?.trim() || null, editedBy: ctx.user.id, editedAt: now, updatedAt: now };
       if (amountChanged) patch.amount = input.amount;
+      // 營業稅支出改金額：從稅金準備付的也跟著改
+      if (amountChanged && before.type === "expense" && before.categoryName === VAT_EXPENSE_NAME) patch.taxAmount = input.amount;
       if (input.unpaidAmount !== undefined) patch.unpaidAmount = input.unpaidAmount;
       await db.update(mainLedger).set(patch).where(eq(mainLedger.id, input.id));
+      // 未入帳金額改少了＝補收到學費，記一筆補收（那部分分潤從今天起才算到期）
+      if (input.unpaidAmount !== undefined && input.unpaidAmount < before.unpaidAmount)
+        await db.insert(paymentReceipts).values({ mainLedgerId: input.id, amount: before.unpaidAmount - input.unpaidAmount, receivedAt: now });
       if (amountChanged) await recalculateMainLedgerBalance(db);
       await writeAudit(db, ctx.user.id, "update", "mainLedger", input.id, before, { ...before, ...patch });
       return { ok: true };

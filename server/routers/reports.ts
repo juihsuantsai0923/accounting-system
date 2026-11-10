@@ -135,7 +135,13 @@ export const reportsRouter = router({
     }
     const events: { month: string; balanceDelta: number; owedDelta: number }[] = [];
     const ml = await ctx.db.select().from(mainLedger).where(isNull(mainLedger.deletedAt));
-    for (const r of ml as any[]) events.push({ month: monthKeyTW(r.createdAt), balanceDelta: r.type === "income" ? r.amount : -r.amount, owedDelta: 0 });
+    // 稅金準備（營業稅）不算公積金：當成公司欠國稅局的錢一起扣
+    for (const r of ml as any[])
+      events.push({
+        month: monthKeyTW(r.createdAt),
+        balanceDelta: r.type === "income" ? r.amount : -r.amount,
+        owedDelta: r.type === "income" ? r.taxAmount ?? 0 : -(r.taxAmount ?? 0),
+      });
     for (const tbl of [teacherLedger, salespersonLedger]) {
       const rows = await ctx.db.select().from(tbl);
       for (const r of rows as any[]) events.push({ month: monthKeyTW(r.createdAt), balanceDelta: 0, owedDelta: ledgerDelta(r) });
@@ -209,7 +215,7 @@ export const reportsRouter = router({
     let totalExpense = 0;
     let reserveChange = 0;
     for (const r of rows as any[]) {
-      const kept = r.amount - (distributed.get(r.id) ?? 0);
+      const kept = r.amount - (distributed.get(r.id) ?? 0) - (r.taxAmount ?? 0);
       if (r.type === "income") {
         totalIncome += r.amount;
         reserveChange += kept;

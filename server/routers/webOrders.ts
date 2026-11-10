@@ -225,7 +225,17 @@ export const webOrdersRouter = router({
       await insertIncome(
         ctx.db,
         ctx.user.id,
-        { itemName: c.itemName, categoryId: c.categoryId, categoryName: c.categoryName, amount: c.amount, note: c.note, incomeSource: c.incomeSource, breakdown: c.breakdown, unpaidAmount: p.unpaidAmount },
+        {
+          itemName: c.itemName,
+          categoryId: c.categoryId,
+          categoryName: c.categoryName,
+          amount: c.amount,
+          note: c.note,
+          incomeSource: c.incomeSource,
+          breakdown: c.breakdown,
+          unpaidAmount: p.unpaidAmount,
+          taxAmount: c.taxAmount,
+        },
         c.distributions,
         (d) => d.itemNameSuffix
       );

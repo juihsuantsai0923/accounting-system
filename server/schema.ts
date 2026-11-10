@@ -184,6 +184,8 @@ export const mainLedger = sqliteTable("main_ledger", {
   breakdown: text("breakdown"),
   // 部分入帳：amount 記整張訂單，這裡是家長還沒付的部分（公積金暫時吸收）
   unpaidAmount: integer("unpaid_amount").notNull().default(0),
+  // 營業稅（2026-11-10）：收入＝登記日以後先扣下來放「稅金準備」的金額；「營業稅」支出＝金額（從稅金準備付，不扣公積金）
+  taxAmount: integer("tax_amount").notNull().default(0),
   // 最後一次由人新增／編輯的時間（重算餘額不會動到它；updated_at 會被重算改掉，不能拿來顯示）
   editedAt: integer("edited_at"),
   editedBy: integer("edited_by"),
@@ -216,6 +218,8 @@ export const teacherLedger = sqliteTable("teacher_ledger", {
   personalAmount: integer("personal_amount").notNull(),
   personalBalance: integer("personal_balance").notNull(),
   editedBy: integer("edited_by"),
+  // 小班衝刺班的分潤／行政費：依這門課 start_date～end_date 按天攤提到期（2026-11-10）；其他收入是 null＝入帳就到期
+  vestCourseId: integer("vest_course_id"),
   ...timestamps,
 });
 
@@ -234,7 +238,16 @@ export const salespersonLedger = sqliteTable("salesperson_ledger", {
   personalAmount: integer("personal_amount").notNull(),
   personalBalance: integer("personal_balance").notNull(),
   editedBy: integer("edited_by"),
+  vestCourseId: integer("vest_course_id"),
   ...timestamps,
+});
+
+// ── PaymentReceipts / 部分入帳的訂單之後補收的學費（補收那部分的分潤從收到錢起才算到期） ─────────────
+export const paymentReceipts = sqliteTable("payment_receipts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  mainLedgerId: integer("main_ledger_id").notNull(),
+  amount: integer("amount").notNull(),
+  receivedAt: integer("received_at").notNull(),
 });
 
 // ── AdvancePayments / 代墊記錄表 ─────────────────────────────
@@ -288,6 +301,12 @@ export const revenueSettings = sqliteTable("revenue_settings", {
   reserveRate: real("reserve_rate").notNull().default(0.1),
   adminFeeRate: real("admin_fee_rate").notNull().default(0.1),
   bookReserveRate: real("book_reserve_rate").notNull().default(0.25), // 書籍公積金比例（2026-11-02 起）
+  // 2026-11-10：營業稅率、稅籍登記日（YYYY-MM-DD，還沒登記＝null；這天起的收入才扣營業稅）
+  vatRate: real("vat_rate").notNull().default(0.05),
+  registrationDate: text("registration_date"),
+  // 公積金最低水位、補稅準備（凍結，公積金的一部分，先標記不可用）
+  reserveFloor: integer("reserve_floor").notNull().default(100000),
+  reserveFrozen: integer("reserve_frozen").notNull().default(37000),
   updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
 });
 

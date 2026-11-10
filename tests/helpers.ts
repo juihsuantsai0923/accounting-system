@@ -1,7 +1,14 @@
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "../server/schema";
-import { createTableStatements, courseColumnMigrations, revenueSettingsColumnMigrations, mainLedgerColumnMigrations } from "../server/schema-sql";
+import {
+  createTableStatements,
+  courseColumnMigrations,
+  revenueSettingsColumnMigrations,
+  mainLedgerColumnMigrations,
+  teacherLedgerColumnMigrations,
+  salespersonLedgerColumnMigrations,
+} from "../server/schema-sql";
 
 /**
  * 測試用的記憶體資料庫：建表後放一份跟正式資料一樣的最小目錄
@@ -17,6 +24,8 @@ export function makeDb() {
   addColumns("courses", courseColumnMigrations);
   addColumns("revenue_settings", revenueSettingsColumnMigrations);
   addColumns("main_ledger", mainLedgerColumnMigrations);
+  addColumns("teacher_ledger", teacherLedgerColumnMigrations);
+  addColumns("salesperson_ledger", salespersonLedgerColumnMigrations);
 
   const now = Date.now();
   const run = (sql: string, ...args: unknown[]) => sqlite.prepare(sql).run(...args);

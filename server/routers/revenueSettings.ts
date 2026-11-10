@@ -39,6 +39,31 @@ export const revenueSettingsRouter = router({
       return { id: 1, ...values };
     }),
 
+  /** 營業稅與公積金水位：稅率、稅籍登記日（空白＝還沒登記）、最低水位、補稅準備（凍結）。登記日以前的帳不會重算 */
+  updateTaxReserve: adminProcedure
+    .input(
+      z.object({
+        vatRatePercent: z.number().min(0).max(50),
+        registrationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+        reserveFloor: z.number().int().min(0),
+        reserveFrozen: z.number().int().min(0),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = ctx.db;
+      await getRevenueSettings(db);
+      const values = {
+        vatRate: input.vatRatePercent / 100,
+        registrationDate: input.registrationDate,
+        reserveFloor: input.reserveFloor,
+        reserveFrozen: input.reserveFrozen,
+        updatedAt: Date.now(),
+      };
+      await db.update(revenueSettings).set(values).where(eq(revenueSettings.id, 1));
+      await writeAudit(db, ctx.user.id, "update", "revenueSettings", 1, null, values);
+      return values;
+    }),
+
   /** 舊帳的書籍分潤照目前的書籍公積金比例重算（dryRun＝只列出會改哪些） */
   recalcBookShares: adminProcedure.input(z.object({ dryRun: z.boolean() })).mutation(async ({ ctx, input }) => {
     const r = await recalcBookShares(ctx.db, input.dryRun);

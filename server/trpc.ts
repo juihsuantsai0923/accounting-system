@@ -18,6 +18,7 @@ const SHIPPER_PATHS = new Set([
   "advancePayments.addCategory",
   "advancePayments.orderOptions",
   "reports.exportAdvancePaymentsCsv",
+  "payroll.person",
 ]);
 
 /** 需要登入 */

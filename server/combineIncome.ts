@@ -10,6 +10,8 @@ export interface IncomePart {
   distributions: DistItem[];
   /** 寫進個人子記帳表的項目名稱前綴，例如課程名稱 */
   personalLabel: string;
+  /** 這一項先扣下來放稅金準備的營業稅（登記日以前是 0） */
+  tax?: number;
 }
 
 /**
@@ -41,6 +43,7 @@ export function combineIncome(parts: IncomePart[]) {
     incomeSource: sources.length === 1 ? sources[0] : "mixed",
     distributions,
     breakdown: parts.length > 1 ? JSON.stringify(parts.map(({ source, name, categoryId, amount }) => ({ source, name, categoryId, amount }))) : null,
-    reserve: parts.reduce((s, p) => s + p.amount, 0) - distributions.reduce((s, d) => s + d.amount, 0),
+    taxAmount: parts.reduce((s, p) => s + (p.tax ?? 0), 0),
+    reserve: parts.reduce((s, p) => s + p.amount - (p.tax ?? 0), 0) - distributions.reduce((s, d) => s + d.amount, 0),
   };
 }
