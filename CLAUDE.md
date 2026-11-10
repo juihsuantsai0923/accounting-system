@@ -32,7 +32,7 @@ npm.cmd run cf:pages:deploy    # 建置並部署前端（改到 client/ 就要�
 npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X_xxx.sql   # 正式 D1 跑 migration
 ```
 
-- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0023（0023 加 main_ledger.unpaid_amount，ALTER 只能跑一次；0022 加 coupons.salesperson_id 並建網紅推銷者，ALTER 只能跑一次；0021 加 revenue_team_members.weight，ALTER 只能跑一次；0018 新增 recurring_entries 定期收支表，可重複執行；0017 把舊的書籍分潤列改成用書名當項目名稱，可重複執行；0016 加 revenue_settings.book_reserve_rate，ALTER 只能跑一次；0015 加 revenue_settings.reserve_rate／admin_fee_rate，ALTER 只能跑一次；0014 還原 0013：蔡睿軒回到 super_admin（linked_teacher_id=2）、leviaxlab.official 停用，可重複執行；0013 新增管理員 leviaxlab.official@gmail.com、蔡睿軒帳號降為 teacher_self，可重複執行；0012 把王歆宜帳號 email 改成她的 Gmail，可重複執行；0011 把舊記錄項目名稱改成完整名稱，可重複執行；0010 加 `main_ledger.edited_at` 並把舊備註改成統一格式，ALTER 只能跑一次；0009 加 `main_ledger.breakdown`，ALTER 只能跑一次；0008 是整合金鑰表，可重複執行；0007 是官網訂單快照表，可重複執行；0005 是小班家教課程與老師對應，可重複執行；0006 加課程上課期間、把舊行事曆收入標成書籍，ALTER 只能跑一次）。
+- 改 schema 時：同時更新 `server/schema.ts`、`server/schema-sql.ts`（本機建表用），並新增 `migrations/000N_*.sql` 給 D1。目前已有 0000～0025（0025 營業稅、按月發薪、公積金水位，ALTER 只能跑一次；0024 加 web_orders.tracking_code，ALTER 只能跑一次；0023 加 main_ledger.unpaid_amount，ALTER 只能跑一次；0022 加 coupons.salesperson_id 並建網紅推銷者，ALTER 只能跑一次；0021 加 revenue_team_members.weight，ALTER 只能跑一次；0018 新增 recurring_entries 定期收支表，可重複執行；0017 把舊的書籍分潤列改成用書名當項目名稱，可重複執行；0016 加 revenue_settings.book_reserve_rate，ALTER 只能跑一次；0015 加 revenue_settings.reserve_rate／admin_fee_rate，ALTER 只能跑一次；0014 還原 0013：蔡睿軒回到 super_admin（linked_teacher_id=2）、leviaxlab.official 停用，可重複執行；0013 新增管理員 leviaxlab.official@gmail.com、蔡睿軒帳號降為 teacher_self，可重複執行；0012 把王歆宜帳號 email 改成她的 Gmail，可重複執行；0011 把舊記錄項目名稱改成完整名稱，可重複執行；0010 加 `main_ledger.edited_at` 並把舊備註改成統一格式，ALTER 只能跑一次；0009 加 `main_ledger.breakdown`，ALTER 只能跑一次；0008 是整合金鑰表，可重複執行；0007 是官網訂單快照表，可重複執行；0005 是小班家教課程與老師對應，可重複執行；0006 加課程上課期間、把舊行事曆收入標成書籍，ALTER 只能跑一次）。
 - **部署順序**：有新 migration 時，一定先跑 D1 migration，再 `wrangler deploy`，最後部署前端；Worker 先上線會因為欄位不存在而查詢失敗。
 - 改完要在回覆裡明確告訴使用者：要不要跑 `wrangler deploy`、要不要跑 migration。
 
@@ -128,11 +128,17 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - **每日排程**（`wrangler.toml [triggers]` 每天 UTC 01:00＝台灣 9 點，`server/dailyJob.ts`）：記到期的定期收支、帳務檢查、官網對帳（對不上、待付款超過 3 天），有事才發 LINE。
 - **LINE 通知**（`server/lineNotify.ts`、管理面板「LINE 通知」）：官網推送有新訂單或狀態改變時馬上通知、每日排程的提醒。金鑰是 Worker secret `LINE_CHANNEL_ACCESS_TOKEN`、`LINE_NOTIFY_TO`（LINE user ID，可逗號分多人），使用者自己用 `wrangler secret put` 設，不要幫他輸入；沒設就不發。
 - **月結對帳單**（`/teacher/:id/statement`、`/salesperson/:id/statement`，`PersonStatementPage`）：月初欠款、本月分潤明細（含買家）、本月撥款、代墊、月底欠款；「列印／存成 PDF」用瀏覽器列印，`.no-print` 的元素（頁首、按鈕）不印。
+- **分潤規則更新（2026-11-10，使用者同意）**：比例不變、舊帳金額不變。
+  - **營業稅**：`revenue_settings.registration_date`（還沒登記＝null）當天或之後入帳的收入，先扣 round(實收×vat_rate/(1+vat_rate)) 存 `main_ledger.tax_amount`（稅金準備），剩下的再分；網紅佣金用扣稅後售價算（`splitWithAdminFee`、`vatOf`）。支出類型「營業稅」的 tax_amount＝金額，從稅金準備付、不扣公積金。公積金一律再扣稅金準備（`reserveTrail`、`timeline`、`companySummary`、儀表板、帳本 `reserveDelta`）。
+  - **上了課才按月發**（`server/payroll.ts`、`routers/payroll.ts`）：每月 15 日發「截至上個月底已到期 − 已發放」。子記帳表 `vest_course_id`（衝刺班的分潤、行政費）依課程 start_date～end_date 按天攤提；上個月底之後才入帳的等下一次；其他入帳就到期。部分入帳的未收部分不到期，補收記在 `payment_receipts`（`receivePayment`、編輯未入帳金額時寫入）。子記帳表餘額不變。
+  - **發薪表** `/payroll`（`payroll.table` 只給 super_admin／finance_staff）：每人一列、每個 15 日一欄（應發／已發），下次發薪那欄可「記錄發放」（`payroll.markPaid`＝記一筆該人的薪水撥款，同月份的撥款算那次）、下載 CSV。本人看 `payroll.person`（老師、推銷者換成自己；出貨員看同名推銷者，在 SHIPPER_PATHS）：個人儀表板、出貨員「我的代墊」、月結對帳單都有「下次可發／尚未到期」。
+  - **公積金水位與年終**：`reserve_floor`（10 萬）、`reserve_frozen`（補稅準備凍結 3.7 萬，問完記帳士改 0）在管理面板「分潤參數」改；年終結算（`payroll.yearEndPreview／yearEndApply`）＝公積金 − 凍結 − 水位 − 次年預留，依當年分潤占比寫進子記帳表「YYYY 年終分潤」（類別 年終分潤，不算下一年占比）。
+  - 用備份驗算：`npx.cmd tsx scripts/check_payroll_on_backup.ts 備份.sql migrations/0025_payroll_vat.sql --now=YYYY-MM-DD`。
 
 ## 工作習慣
 
 - 使用者以繁體中文溝通，回覆也請用繁體中文，並簡潔說明改了什麼、要跑哪些部署指令。
-- 每次改完都 commit（訊息用中文，結尾加 Co-Authored-By）。部署只在使用者說「部署」時做；改正式資料前先 `wrangler d1 export` 備份到 `記帳\D1備份_日期_說明.sql`。
+- 每次改完都 commit（訊息用中文，結尾加 Co-Authored-By）。部署只在使用者說「部署」時做；改正式資料前先 `wrangler d1 export` 備份到 `03_網站與系統\記帳系統\資料庫備份\D1備份_日期_說明.sql`。
 - **不要在資料庫直接刪改帳務資料**：一定要改時，改完重算餘額，並看儀表板「需要注意」的帳務檢查（`server/integrity.ts`、`reports.integrity`：帳本餘額、子記帳表餘額、分配表與子記帳表是否一致）沒有警告。
 - 測試：`npm.cmd test`（`tests/`，node:test＋記憶體 SQLite，涵蓋折扣分攤、書籍分潤、行事曆、運費、舊帳重算、帳務檢查）。改 `revenueCalc.ts`、`webOrderRecord.ts`、`bookShares.ts` 後一定要跑。
 - wrangler 4 的 `d1 execute --remote --file=` 走 import API，2026-11-03 回 Authentication error 10000；改用 `--command "SQL"` 就可以。

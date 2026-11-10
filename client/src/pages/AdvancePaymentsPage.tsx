@@ -4,6 +4,7 @@ import { useAuth, canManage } from "../lib/auth";
 import { downloadTextFile } from "../lib/download";
 import SearchableSelect from "../components/SearchableSelect";
 import BatchOrderPicker, { BATCH_LIMIT } from "../components/BatchOrderPicker";
+import PaySchedule from "../components/PaySchedule";
 
 function fmt(n: number) {
   return `NT$${n.toLocaleString()}`;
@@ -195,6 +196,8 @@ export default function AdvancePaymentsPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl text-brand-700">{isSelf ? "我的代墊" : "代墊款管理"}</h1>
+      {/* 出貨員本人：下次 15 日可發與發薪紀錄（後端只回自己的） */}
+      {isShipper && <PaySchedule />}
       {isSelf ? (
         <p className="text-sm text-slate-500">
           幫公司先付的錢（例如寄書的運費）在這裡登記，管理員審核通過後會計入你的積欠薪水，跟薪水一起發。登記後可以自己修改或刪除，修改後要重新審核。

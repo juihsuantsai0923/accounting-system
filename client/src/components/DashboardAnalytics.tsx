@@ -46,6 +46,7 @@ export interface Entry {
   incomeSource: string | null;
   breakdown?: string | null;
   distributed: number;
+  taxAmount?: number;
   salaryTeacherId: number | null;
   salarySalespersonId: number | null;
   createdAt: number;
@@ -506,12 +507,12 @@ export function MonthlyReportButton({
     L.push(csvLine(["二、收入明細"]));
     L.push(csvLine(["日期", "項目", "類別", "收入來源", "金額", "公積金增減", "備註"]));
     for (const e of rows.filter((x) => x.type === "income"))
-      L.push(csvLine([new Date(e.createdAt).toLocaleDateString(), e.itemName, e.categoryName, SOURCE[inferSource(e, courseNames)] ?? "", e.amount, e.amount - e.distributed, e.note ?? ""]));
+      L.push(csvLine([new Date(e.createdAt).toLocaleDateString(), e.itemName, e.categoryName, SOURCE[inferSource(e, courseNames)] ?? "", e.amount, e.amount - e.distributed - (e.taxAmount ?? 0), e.note ?? ""]));
     L.push("");
     L.push(csvLine(["三、支出明細"]));
     L.push(csvLine(["日期", "項目", "類別", "金額", "公積金增減", "備註"]));
     for (const e of rows.filter((x) => x.type === "expense"))
-      L.push(csvLine([new Date(e.createdAt).toLocaleDateString(), e.itemName, isSalary(e) ? `${e.categoryName}（薪水撥款）` : e.categoryName, e.amount, -(e.amount - e.distributed), e.note ?? ""]));
+      L.push(csvLine([new Date(e.createdAt).toLocaleDateString(), e.itemName, isSalary(e) ? `${e.categoryName}（薪水撥款）` : e.categoryName, e.amount, -(e.amount - e.distributed - (e.taxAmount ?? 0)), e.note ?? ""]));
     L.push("");
     L.push(csvLine(["四、每人分潤"]));
     L.push(csvLine(["身份", "姓名", "本月分得", "本月領取", "目前欠款（含借款與代墊）"]));

@@ -220,6 +220,9 @@ export default function Layout() {
             <TabLink to="/ledger" onClick={closeMenu}>
               帳本
             </TabLink>
+            <TabLink to="/payroll" onClick={closeMenu}>
+              發薪表
+            </TabLink>
             <TabLink to="/analytics" onClick={closeMenu}>
               分析
             </TabLink>

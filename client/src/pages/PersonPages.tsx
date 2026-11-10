@@ -7,6 +7,7 @@ import { downloadTextFile } from "../lib/download";
 import { BRAND, GRID, INK_MUTED, MonthlyRevenueChart, fmt, fmtShort, niceTicks, tooltipStyle } from "../components/DashboardCharts";
 import { ReserveTrendChart } from "../components/DashboardAnalytics";
 import LevelCard from "../components/LevelCard";
+import PaySchedule from "../components/PaySchedule";
 
 /**
  * 老師／推銷者的個人頁：「儀表板」（累積分潤、已發放、每月發放圖）和「帳本」（子記帳表，唯讀，可篩選排序）。
@@ -126,6 +127,8 @@ export function PersonDashboardPage({ kind }: { kind: Kind }) {
           </div>
         )}
       </div>
+
+      <PaySchedule kind={kind} id={id} />
 
       {company.data && (
         <div className="space-y-2">
@@ -493,6 +496,14 @@ export function PersonStatementPage({ kind }: { kind: Kind }) {
   const total = (list: any[]) => list.reduce((s, r) => s + deltaOf(r), 0);
   const closing = opening + total(inMonth);
   const [y, m] = selected.split("-");
+  // 月底欠款拆成「截至月底已到期（下個月 15 日發）」和「尚未到期」
+  const sched = trpc.payroll.person.useQuery({ recipientType: kind, recipientId: id }, { enabled: !!id, retry: false });
+  const nextPd = (() => {
+    const [yy, mm] = selected.split("-").map(Number);
+    return mm === 12 ? `${yy + 1}-01-15` : `${yy}-${String(mm + 1).padStart(2, "0")}-15`;
+  })();
+  const pd = sched.data?.paydays.find((p) => p.payday === nextPd);
+  const dueAtMonthEnd = pd ? Math.max(0, pd.cumVested - pd.paidBeforeCutoff) : null;
 
   return (
     <div className="space-y-6">
@@ -542,6 +553,13 @@ export function PersonStatementPage({ kind }: { kind: Kind }) {
             </div>
           ))}
         </div>
+
+        {dueAtMonthEnd != null && (
+          <div className="text-sm text-slate-700 bg-amber-50 rounded-lg px-3 py-2">
+            月底欠款中，截至月底<b>已到期 {fmt(dueAtMonthEnd)}</b>（{Number(nextPd.slice(5, 7))}/15 發），
+            <b>尚未到期 {fmt(closing - dueAtMonthEnd)}</b>（衝刺班還沒上的課、家長還沒繳的學費）。
+          </div>
+        )}
 
         <StatementTable title="本月分潤明細" list={earned} showBuyer />
         <StatementTable title="本月撥款" list={paid} />

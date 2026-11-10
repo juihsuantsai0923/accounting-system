@@ -10,6 +10,7 @@ import ReconcilePage from "./pages/ReconcilePage";
 import AdminPage from "./pages/AdminPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import TaxPage from "./pages/TaxPage";
+import PayrollPage from "./pages/PayrollPage";
 import { SalespeopleDirectoryPage } from "./pages/PeopleDirectoryPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/reconcile" element={<ReconcilePage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/tax" element={<TaxPage />} />
+        <Route path="/payroll" element={<PayrollPage />} />
         <Route path="/admin" element={<AdminPage />} />
         {/* 改用 Google 登入後不需要帳號設定頁 */}
         <Route path="/account" element={<Navigate to="/" replace />} />

@@ -737,6 +737,160 @@ function RevenueSettingsAdmin() {
   );
 }
 
+/** 營業稅與公積金水位：稅籍登記日（空白＝還沒登記）、稅率、最低水位、補稅準備（凍結） */
+function TaxReserveSettingsAdmin() {
+  const utils = trpc.useUtils();
+  const settingsQuery = trpc.revenueSettings.get.useQuery();
+  const update = trpc.revenueSettings.updateTaxReserve.useMutation({
+    onSuccess: () => {
+      utils.revenueSettings.get.invalidate();
+      utils.payroll.invalidate();
+    },
+  });
+  const [form, setForm] = useState({ vatRatePercent: "5", registrationDate: "", reserveFloor: "100000", reserveFrozen: "37000" });
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => {
+    const s: any = settingsQuery.data?.settings;
+    if (!s) return;
+    setForm({
+      vatRatePercent: String(Math.round(s.vatRate * 100 * 1000) / 1000),
+      registrationDate: s.registrationDate ?? "",
+      reserveFloor: String(s.reserveFloor),
+      reserveFrozen: String(s.reserveFrozen),
+    });
+  }, [settingsQuery.data]);
+  return (
+    <Section title="營業稅與公積金水位">
+      <div className="text-sm text-slate-600 space-y-1">
+        <p>稅籍登記日當天或之後入帳的收入，先扣「實收 × 5/105」放稅金準備，剩下的再照上面的比例分（網紅佣金也用扣稅後的金額算）。登記日以前的帳不扣、不重算。</p>
+        <p>補稅準備（凍結）是公積金的一部分，先標記不能用；問完記帳士要解除就改成 0。</p>
+      </div>
+      <form
+        className="grid grid-cols-1 sm:grid-cols-5 gap-4 items-end"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setMsg(null);
+          try {
+            await update.mutateAsync({
+              vatRatePercent: parseFloat(form.vatRatePercent || "0"),
+              registrationDate: form.registrationDate || null,
+              reserveFloor: parseInt(form.reserveFloor || "0", 10),
+              reserveFrozen: parseInt(form.reserveFrozen || "0", 10),
+            });
+            setMsg("已儲存");
+          } catch (err: any) {
+            setMsg(err?.message ?? "儲存失敗");
+          }
+        }}
+      >
+        <div>
+          <label className="label">稅籍登記日（還沒登記留空白）</label>
+          <input className="input" type="date" value={form.registrationDate} onChange={(e) => setForm({ ...form, registrationDate: e.target.value })} />
+        </div>
+        <div>
+          <label className="label">營業稅率（%）</label>
+          <input className="input" inputMode="decimal" value={form.vatRatePercent} onChange={(e) => setForm({ ...form, vatRatePercent: e.target.value })} />
+        </div>
+        <div>
+          <label className="label">公積金最低水位</label>
+          <input className="input" inputMode="numeric" value={form.reserveFloor} onChange={(e) => setForm({ ...form, reserveFloor: e.target.value.replace(/[^\d]/g, "") })} />
+        </div>
+        <div>
+          <label className="label">補稅準備（凍結）</label>
+          <input className="input" inputMode="numeric" value={form.reserveFrozen} onChange={(e) => setForm({ ...form, reserveFrozen: e.target.value.replace(/[^\d]/g, "") })} />
+        </div>
+        <button className="btn-primary" type="submit" disabled={update.isPending}>
+          {update.isPending ? "儲存中..." : "儲存"}
+        </button>
+      </form>
+      {msg && <div className="text-sm text-slate-600">{msg}</div>}
+    </Section>
+  );
+}
+
+/** 年終結算：可發＝公積金 − 補稅準備（凍結）− 最低水位 − 次年預留支出，依當年每人分潤占比分；先預覽，確認才寫進子記帳表 */
+function YearEndAdmin() {
+  const utils = trpc.useUtils();
+  const [year, setYear] = useState(String(new Date().getFullYear()));
+  const [reserved, setReserved] = useState("0");
+  const [asked, setAsked] = useState<{ year: number; reservedNextYear: number } | null>(null);
+  const preview = trpc.payroll.yearEndPreview.useQuery(asked ?? { year: 2026, reservedNextYear: 0 }, { enabled: !!asked, retry: false });
+  const apply = trpc.payroll.yearEndApply.useMutation({ onSuccess: () => utils.invalidate() });
+  const p = preview.data;
+  const nt = (n: number) => `NT$${n.toLocaleString()}`;
+  return (
+    <Section title="年終結算">
+      <p className="text-sm text-slate-600">成立公司後每年 12 月做一次：保住最低水位和明年的預留支出，超過的部分依當年每人分潤的比例當年終分潤，寫進每個人的子記帳表（項目「年度 年終分潤」），之後照一般發薪發。</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+        <div>
+          <label className="label">年度</label>
+          <input className="input" inputMode="numeric" value={year} onChange={(e) => setYear(e.target.value.replace(/[^\d]/g, ""))} />
+        </div>
+        <div>
+          <label className="label">次年預留支出</label>
+          <input className="input" inputMode="numeric" value={reserved} onChange={(e) => setReserved(e.target.value.replace(/[^\d]/g, ""))} />
+        </div>
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={!year}
+          onClick={() => {
+            apply.reset();
+            setAsked({ year: parseInt(year, 10), reservedNextYear: parseInt(reserved || "0", 10) });
+          }}
+        >
+          預覽
+        </button>
+      </div>
+      {preview.error && <div className="text-sm text-red-600">{preview.error.message}</div>}
+      {p && (
+        <div className="space-y-3">
+          <div className="text-sm text-slate-700">
+            可發 {nt(p.available)} ＝ 公積金 {nt(p.reserve)} − 補稅準備（凍結）{nt(p.reserveFrozen)} − 最低水位 {nt(p.reserveFloor)} − 次年預留 {nt(p.reservedNextYear)}
+            {p.available === 0 && "（沒有可發的）"}
+          </div>
+          {p.shares.length > 0 && (
+            <table className="w-full text-sm">
+              <thead className="text-slate-500">
+                <tr>
+                  <th className="text-left py-1">姓名</th>
+                  <th className="text-right py-1">{p.year} 年分潤</th>
+                  <th className="text-right py-1">占比</th>
+                  <th className="text-right py-1">年終分潤</th>
+                </tr>
+              </thead>
+              <tbody>
+                {p.shares.map((s) => (
+                  <tr key={`${s.recipientType}-${s.recipientId}`} className="border-t border-slate-100">
+                    <td className="py-1">{s.name}</td>
+                    <td className="py-1 text-right tabular-nums">{nt(s.earned)}</td>
+                    <td className="py-1 text-right tabular-nums">{(s.ratio * 100).toFixed(1)}%</td>
+                    <td className="py-1 text-right tabular-nums font-medium">{nt(s.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {p.total > 0 && (
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={apply.isPending || apply.isSuccess}
+              onClick={() => {
+                if (window.confirm(`確定把 ${p.year} 年終分潤合計 ${nt(p.total)} 寫進每個人的子記帳表？`))
+                  apply.mutate({ year: p.year, reservedNextYear: p.reservedNextYear, expectedTotal: p.total });
+              }}
+            >
+              {apply.isSuccess ? "已寫入" : `確認發放 ${nt(p.total)}`}
+            </button>
+          )}
+          {apply.error && <div className="text-sm text-red-600">{apply.error.message}</div>}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 function LineNotifyAdmin() {
   const status = trpc.notify.status.useQuery();
   const test = trpc.notify.test.useMutation();
@@ -828,7 +982,13 @@ export default function AdminPage() {
       {tab === "shippers" && <ShippersAdmin />}
       {tab === "expenseTypes" && <ExpenseTypesAdmin />}
       {tab === "incomeTypes" && <IncomeTypesAdmin />}
-      {tab === "revenue" && <RevenueSettingsAdmin />}
+      {tab === "revenue" && (
+        <>
+          <RevenueSettingsAdmin />
+          <TaxReserveSettingsAdmin />
+          <YearEndAdmin />
+        </>
+      )}
       {tab === "recurring" && <RecurringAdmin />}
       {tab === "line" && <LineNotifyAdmin />}
       {tab === "users" && <UsersAdmin />}

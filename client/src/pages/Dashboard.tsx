@@ -93,6 +93,7 @@ export default function Dashboard() {
   const integrityQuery = trpc.reports.integrity.useQuery(undefined, { enabled: !isSelfRole });
   const reconcileQuery = trpc.webOrders.reconcile.useQuery(undefined, { enabled: !isSelfRole });
   const pendingRequestsQuery = trpc.accountRequests.pendingCount.useQuery(undefined, { enabled: user?.role === "super_admin" });
+  const reserveStatusQuery = trpc.payroll.reserveStatus.useQuery(undefined, { enabled: !isSelfRole, retry: false });
   const unpaidQuery = trpc.mainLedger.unpaidList.useQuery(undefined, { enabled: !!user && !["teacher_self", "salesperson_self", "shipper_self"].includes(user.role) });
   const receivable = reconcileQuery.data?.receivable;
   const reconcileIssues = (reconcileQuery.data?.orders ?? []).filter((o) =>
@@ -114,7 +115,14 @@ export default function Dashboard() {
   const totalOwed = (overviewQuery.data ?? []).reduce((s, r) => s + Math.max(r.totalBalance, 0), 0);
   // 公積金＝公司帳上的錢扣掉還欠每個人的錢（含代墊）；有人被多付（餘額為負）會反過來加回公積金
   const netOwed = (overviewQuery.data ?? []).reduce((s, r) => s + r.totalBalance, 0);
-  const reserveFund = currentBalance - netOwed;
+  // 稅金準備（登記後每筆收入先扣下來的營業稅 − 已繳的）是要繳給國稅局的錢，不算公積金
+  const rs = reserveStatusQuery.data;
+  const taxReserve = rs?.taxReserve ?? 0;
+  const reserveFund = currentBalance - netOwed - taxReserve;
+  // 補稅準備（凍結）是公積金的一部分，先標記不可用；最低水位看扣掉凍結後的可用公積金
+  const frozen = rs?.reserveFrozen ?? 0;
+  const usableReserve = reserveFund - frozen;
+  const belowFloor = rs ? Math.max(0, rs.reserveFloor - usableReserve) : 0;
   const unpaidOrders = unpaidQuery.data ?? [];
   const unpaidTotal = unpaidOrders.reduce((s, o) => s + o.unpaidAmount, 0);
   // 薪水全部發掉後真正留在公司的錢＝公積金扣掉家長還沒付的；少於目標時，差額先少付給蔡睿軒
@@ -181,8 +189,19 @@ export default function Dashboard() {
           如果現在把所有薪水發完，真實公積金是 {fmt(realReserve)}。要留 {fmt(RESERVE_TARGET)}，
           {payShortfall > 0 ? <b> 蔡睿軒要先少領 {fmt(payShortfall)}</b> : " 不用少領"}。
         </div>
+        {rs && frozen > 0 && (
+          <div className="text-sm text-slate-700 mt-2">
+            其中 <b>補稅準備（凍結）{fmt(frozen)}</b>：登記前那段可能要補的營業稅，先不能用，問完記帳士再解除。可用公積金 {fmt(usableReserve)}。
+          </div>
+        )}
+        {rs && belowFloor > 0 && (
+          <div className="text-sm text-red-600 mt-2">
+            ⚠ 低於公積金最低水位 {fmt(rs.reserveFloor)}，還差 {fmt(belowFloor)}；補滿之前不發年終。
+          </div>
+        )}
         <div className="text-xs text-slate-400 mt-2">
           ＝ 帳本目前餘額 {fmt(currentBalance)} − 還欠所有人的錢 {fmt(netOwed)}
+          {taxReserve !== 0 && ` − 稅金準備 ${fmt(taxReserve)}`}
           {loanTotal > 0 && `（其中創始基金借款 ${fmt(loanTotal)}，要還給出資人）`}。
           也就是「如果今天把欠所有人的錢全部付清，帳上會剩 {fmt(reserveFund)}」。書籍收入、小班家教扣下的公積金、線上課程沒分出去的部分都會累積在這裡。
         </div>
@@ -206,6 +225,17 @@ export default function Dashboard() {
           <div className="text-2xl font-semibold mt-1 text-amber-600">{fmt(totalUnsettledAdvance)}</div>
         </div>
       </div>
+
+      {rs && (rs.registrationDate || taxReserve !== 0) && (
+        <div className="card border-l-4 border-slate-400">
+          <div className="text-sm text-slate-500">稅金準備（營業稅，跟公積金分開）</div>
+          <div className="text-2xl font-semibold mt-1 text-slate-700">{fmt(taxReserve)}</div>
+          <div className="text-xs text-slate-400 mt-1">
+            {rs.registrationDate ? `${rs.registrationDate} 起每筆收入先扣 ${Math.round(rs.vatRate * 1000) / 10}%（含稅價 × 5/105）放這裡；` : "還沒設定稅籍登記日；"}
+            繳稅時在手動記帳記一筆「營業稅」支出，從這裡扣、不扣公積金。
+          </div>
+        </div>
+      )}
 
       <LevelCard entries={entries} />
 

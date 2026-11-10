@@ -56,9 +56,11 @@ const BOOK_KIND_LABELS: Record<string, string> = { book: "講義", workbook: "�
  *   收入 → 金額扣掉分給個人的部分（正數）
  *   薪水撥款 → 0（付的是公司本來就欠的錢，公積金不變）
  *   其他公帳支出 → 負數
+ *   營業稅（taxAmount）：收入扣下來的、繳稅付掉的都進出稅金準備，不算公積金
  */
-export function reserveDelta(e: { type: string; amount: number; distributed: number }) {
-  return e.type === "income" ? e.amount - e.distributed : -(e.amount - e.distributed);
+export function reserveDelta(e: { type: string; amount: number; distributed: number; taxAmount?: number }) {
+  const own = e.amount - e.distributed - (e.taxAmount ?? 0);
+  return e.type === "income" ? own : -own;
 }
 
 function isSalaryEntry(e: { salaryTeacherId: number | null; salarySalespersonId: number | null }) {
