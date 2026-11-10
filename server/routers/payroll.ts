@@ -113,7 +113,7 @@ export const payrollRouter = router({
     .input(
       recipientInput.extend({
         amount: z.number().int().positive("發放金額必須大於 0"),
-        payday: z.string().regex(/^\d{4}-\d{2}-15$/),
+        payday: z.string().regex(/^\d{4}-(\d{2}-15|12-31)$/),
         paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       })
     )
@@ -132,7 +132,7 @@ export const payrollRouter = router({
       const date = input.paidDate ?? today;
       // 指定日期（補記）時記在那天中午；今天就用現在時間
       const at = date === today ? Date.now() : twDayStart(date) + 12 * 3600 * 1000;
-      const itemName = `${person.name} ${Number(input.payday.slice(5, 7))}/15 薪水`;
+      const itemName = `${person.name} ${Number(input.payday.slice(5, 7))}/${Number(input.payday.slice(8, 10))} 薪水`;
       const prev = await getLatestBalance(db);
       const [entry] = await db
         .insert(mainLedger)

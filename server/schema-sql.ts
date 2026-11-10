@@ -338,4 +338,5 @@ export const revenueSettingsColumnMigrations: { column: string; statement: strin
   { column: "registration_date", statement: `ALTER TABLE revenue_settings ADD COLUMN registration_date TEXT` },
   { column: "reserve_floor", statement: `ALTER TABLE revenue_settings ADD COLUMN reserve_floor INTEGER NOT NULL DEFAULT 100000` },
   { column: "reserve_frozen", statement: `ALTER TABLE revenue_settings ADD COLUMN reserve_frozen INTEGER NOT NULL DEFAULT 37000` },
+  { column: "pay_dec31", statement: `ALTER TABLE revenue_settings ADD COLUMN pay_dec31 INTEGER NOT NULL DEFAULT 1` },
 ];

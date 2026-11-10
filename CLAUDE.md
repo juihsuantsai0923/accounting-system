@@ -130,7 +130,7 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 - **月結對帳單**（`/teacher/:id/statement`、`/salesperson/:id/statement`，`PersonStatementPage`）：月初欠款、本月分潤明細（含買家）、本月撥款、代墊、月底欠款；「列印／存成 PDF」用瀏覽器列印，`.no-print` 的元素（頁首、按鈕）不印。
 - **分潤規則更新（2026-11-10，使用者同意）**：比例不變、舊帳金額不變。
   - **營業稅**：`revenue_settings.registration_date`（還沒登記＝null）當天或之後入帳的收入，先扣 round(實收×vat_rate/(1+vat_rate)) 存 `main_ledger.tax_amount`（稅金準備），剩下的再分；網紅佣金用扣稅後售價算（`splitWithAdminFee`、`vatOf`）。支出類型「營業稅」的 tax_amount＝金額，從稅金準備付、不扣公積金。公積金一律再扣稅金準備（`reserveTrail`、`timeline`、`companySummary`、儀表板、帳本 `reserveDelta`）。
-  - **上了課才按月發**（`server/payroll.ts`、`routers/payroll.ts`）：每月 15 日發「截至上個月底已到期 − 已發放」。子記帳表 `vest_course_id`（衝刺班的分潤、行政費）依課程 start_date～end_date 按天攤提；上個月底之後才入帳的等下一次；其他入帳就到期。部分入帳的未收部分不到期，補收記在 `payment_receipts`（`receivePayment`、編輯未入帳金額時寫入）。子記帳表餘額不變。
+  - **上了課才按月發**（`server/payroll.ts`、`routers/payroll.ts`）：每月 15 日發「截至上個月底已到期 − 已發放」，`pay_dec31`（預設開）每年 12/31 加發 12 月到期的。**按天攤提只用在稅籍登記日以後入帳的**衝刺班分潤、行政費（子記帳表 `vest_course_id`，依課程 start_date～end_date）；登記前的帳（這一屆，使用者 2026 年內手動發完）和其他收入入帳就到期。上個月底之後才入帳的等下一次。已發放＞已到期＝預付：可發 0、顯示「已預付」，欠款不顯示負數。部分入帳的未收部分不到期，補收記在 `payment_receipts`（`receivePayment`、編輯未入帳金額時寫入）。子記帳表餘額不變。
   - **發薪表** `/payroll`（`payroll.table` 只給 super_admin／finance_staff）：每人一列、每個 15 日一欄（應發／已發），下次發薪那欄可「記錄發放」（`payroll.markPaid`＝記一筆該人的薪水撥款，同月份的撥款算那次）、下載 CSV。本人看 `payroll.person`（老師、推銷者換成自己；出貨員看同名推銷者，在 SHIPPER_PATHS）：個人儀表板、出貨員「我的代墊」、月結對帳單都有「下次可發／尚未到期」。
   - **公積金水位與年終**：`reserve_floor`（10 萬）、`reserve_frozen`（補稅準備凍結 3.7 萬，問完記帳士改 0）在管理面板「分潤參數」改；年終結算（`payroll.yearEndPreview／yearEndApply`）＝公積金 − 凍結 − 水位 − 次年預留，依當年分潤占比寫進子記帳表「YYYY 年終分潤」（類別 年終分潤，不算下一年占比）。
   - 用備份驗算：`npx.cmd tsx scripts/check_payroll_on_backup.ts 備份.sql migrations/0025_payroll_vat.sql --now=YYYY-MM-DD`。

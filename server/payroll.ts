@@ -1,15 +1,16 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { courses, mainLedger, paymentReceipts, salespeople, salespersonLedger, shippers, teacherLedger, teachers } from "./schema";
-import { twDayStart } from "./revenueCalc";
+import { getRevenueSettings, twDayStart } from "./revenueCalc";
 import { ledgerDelta } from "./ledger";
 
 /**
- * 上了課才按月發（2026-11-10）：每月 15 日發「截至上個月最後一天已到期 − 已發放」。
- *   小班衝刺班的分潤、行政費（子記帳表 vest_course_id 有值）：依課程 start_date～end_date 按天線性攤提，
- *     到期日以上個月底為準；收入在上個月底之後才入帳的，要等入帳後的下一個 15 日才算（插班生入班前已經過的天數，入帳時就算到期）。
- *   其他（書籍、線上課程、試上、代墊、創始基金、年終分潤）：入帳就到期，下一個 15 日發。
+ * 發薪（2026-11-10）：每月 15 日發「截至上個月最後一天已到期 − 已發放」；可另設每年 12/31 加發一次（到期算到 12/31）。
+ *   「上了課才發」只用在稅籍登記日（revenue_settings.registration_date）以後入帳的小班衝刺班分潤／行政費
+ *     （子記帳表 vest_course_id 有值）：依課程 start_date～end_date 按天線性攤提；上個月底之後才入帳的，等入帳後的下一次發薪
+ *     （插班生入班前已經過的天數，入帳時就算到期）。
+ *   登記日以前的帳（還沒登記＝全部）、書籍、線上課程、試上、代墊、創始基金、年終分潤：入帳就到期，下一次發薪發。
  *   部分入帳（main_ledger.unpaid_amount）：還沒收到的那部分學費對應的分潤不算到期；補收後（payment_receipts）那部分從收到那天起算。
- * 子記帳表餘額不變；已發放＝薪水撥款（子記帳表 distribution／expense）。
+ * 子記帳表餘額不變；已發放＝薪水撥款（子記帳表 distribution／expense）。已發放比已到期多＝預付，不算欠款也不顯示負數。
  */
 
 const DAY = 86400000;
@@ -37,26 +38,34 @@ function addMonth(ym: string, n: number) {
   return `${y}-${String(m).padStart(2, "0")}`;
 }
 
-/** 發薪日（YYYY-MM-15）的到期基準：上個月最後一天結束＝這個月 1 日 00:00（台灣時間） */
+/** 發薪日的到期基準：15 日＝這個月 1 日 00:00（上個月底結束）；12/31＝隔年 1/1 00:00（12 月整個月算進來） */
 export function cutoffOf(payday: string) {
+  if (payday.endsWith("-12-31")) return twDayStart(`${Number(payday.slice(0, 4)) + 1}-01-01`);
   return twDayStart(`${payday.slice(0, 7)}-01`);
 }
 
-/** 下一個發薪日：今天（台灣時間）15 日以前＝這個月 15 日，否則下個月 15 日 */
-export function nextPayday(now = Date.now()) {
+/** 下一個發薪日：今天（台灣時間）15 日以前＝這個月 15 日；12 月下旬有 12/31 加發就是 12/31；否則下個月 15 日 */
+export function nextPayday(now = Date.now(), dec31 = false) {
   const d = twDate(now);
   const ym = d.slice(0, 7);
-  return Number(d.slice(8, 10)) <= 15 ? `${ym}-15` : `${addMonth(ym, 1)}-15`;
+  if (Number(d.slice(8, 10)) <= 15) return `${ym}-15`;
+  if (dec31 && ym.endsWith("-12")) return `${ym.slice(0, 4)}-12-31`;
+  return `${addMonth(ym, 1)}-15`;
 }
 
-/** 某個時間點的錢算在哪一次發薪（同一個月份的 15 日；例如 11/14、11/20 發的都算 11/15 那次） */
-export function paydayOfPayout(ts: number) {
-  return `${twDate(ts).slice(0, 7)}-15`;
+/** 某一筆撥款算在哪一次發薪：同一個月的 15 日（12 月有 12/31 加發時，16 日以後算 12/31） */
+export function paydayOfPayout(ts: number, dec31 = false) {
+  const d = twDate(ts);
+  if (dec31 && d.slice(5, 7) === "12" && Number(d.slice(8, 10)) > 15) return `${d.slice(0, 4)}-12-31`;
+  return `${d.slice(0, 7)}-15`;
 }
 
-export function paydayRange(first: string, last: string) {
+export function paydayRange(first: string, last: string, dec31 = false) {
   const out: string[] = [];
-  for (let ym = first.slice(0, 7); ym <= last.slice(0, 7); ym = addMonth(ym, 1)) out.push(`${ym}-15`);
+  for (let ym = first.slice(0, 7); ym <= last.slice(0, 7); ym = addMonth(ym, 1)) {
+    out.push(`${ym}-15`);
+    if (dec31 && ym.endsWith("-12") && `${ym}-31` <= last) out.push(`${ym}-31`);
+  }
   return out;
 }
 
@@ -76,8 +85,12 @@ export function isPayout(r: LedgerRowLike) {
   return r.sourceType === "distribution" && r.type === "expense";
 }
 
-/** 讀出算到期需要的資料（衝刺班期間、每筆收入的部分入帳與補收），回傳「某一行在某個時間點已到期多少」的函式 */
+/** 讀出算到期需要的資料，回傳「某一行在某個時間點已到期多少」的函式與發薪設定 */
 export async function loadVesting(db: any) {
+  const settings = await getRevenueSettings(db);
+  const dec31 = settings.payDec31;
+  // 登記日以後入帳的衝刺班才按天攤提；還沒登記＝全部入帳就到期
+  const vestFrom = settings.registrationDate ? twDayStart(settings.registrationDate) : Infinity;
   const courseRows: any[] = await db.select().from(courses);
   const period = new Map<number, { start: number; end: number }>();
   for (const c of courseRows)
@@ -100,11 +113,17 @@ export async function loadVesting(db: any) {
     tranches.set(e.id, [{ at: e.createdAt, frac: initial / e.amount }, ...rs.map((r) => ({ at: r.receivedAt, frac: r.amount / e.amount }))]);
   }
 
+  /** 這一行要按課程期間攤提嗎：登記日以後入帳、而且是衝刺班的分潤／行政費 */
+  function periodOf(r: LedgerRowLike) {
+    if (r.vestCourseId == null || r.createdAt < vestFrom) return undefined;
+    return period.get(r.vestCourseId);
+  }
+
   /** 這一行在 cutoff（不含）之前已到期的金額（小數，最後加總完才四捨五入）；薪水撥款不算 */
   function vestedAt(r: LedgerRowLike, cutoff: number): number {
     if (isPayout(r)) return 0;
     if (!(r.sourceType === "distribution" && r.type === "income")) return r.createdAt < cutoff ? ledgerDelta(r as any) : 0;
-    const p = r.vestCourseId != null ? period.get(r.vestCourseId) : undefined;
+    const p = periodOf(r);
     const share = p ? Math.max(0, Math.min(1, (cutoff - p.start) / (p.end - p.start))) : 1;
     const parts = (r.mainLedgerId != null && tranches.get(r.mainLedgerId)) || [{ at: r.createdAt, frac: 1 }];
     let v = 0;
@@ -112,17 +131,29 @@ export async function loadVesting(db: any) {
     return v;
   }
 
-  /** 全部到期的最後一個發薪日（最晚結束的衝刺班的下個月 15 日，至少是下一個發薪日） */
-  function lastPayday(now = Date.now()) {
-    let last = nextPayday(now);
-    for (const p of period.values()) {
+  /** 最後一個要列的發薪日：有攤提的衝刺班結束後的下一次，至少是下一個發薪日 */
+  function lastPayday(rows: LedgerRowLike[], now = Date.now()) {
+    let last = nextPayday(now, dec31);
+    // 入帳就到期的：入帳（或補收）那個月結束後的下一次發薪
+    const firstAfter = (ts: number) => {
+      const ym = twDate(ts).slice(0, 7);
+      return dec31 && ym.endsWith("-12") ? `${ym}-31` : `${addMonth(ym, 1)}-15`;
+    };
+    for (const r of rows) {
+      const pd = firstAfter(r.createdAt);
+      if (pd > last) last = pd;
+      for (const t of (r.mainLedgerId != null && tranches.get(r.mainLedgerId)) || []) if (firstAfter(t.at) > last) last = firstAfter(t.at);
+    }
+    for (const r of rows) {
+      const p = periodOf(r);
+      if (!p) continue;
       const pd = `${addMonth(twDate(p.end - 1).slice(0, 7), 1)}-15`;
       if (pd > last) last = pd;
     }
     return last;
   }
 
-  return { vestedAt, lastPayday };
+  return { vestedAt, lastPayday, dec31 };
 }
 
 export interface PersonSchedule {
@@ -130,11 +161,13 @@ export interface PersonSchedule {
   recipientId: number;
   name: string;
   isShipper: boolean;
-  /** 每個發薪日：截至上個月底累計到期、該次新到期（應發）、該次實際發放（同月份的薪水撥款） */
+  /** 每個發薪日：累計到期、該次新到期（應發）、該次實際發放、到期基準之前已發的 */
   paydays: { payday: string; cumVested: number; due: number; paid: number; paidBeforeCutoff: number }[];
+  /** 子記帳表餘額（被多付時是負數，畫面上不顯示負數，改顯示預付） */
   balance: number;
   totalPaid: number;
-  next: { payday: string; payable: number; notYetDue: number };
+  /** payable＝下次可發；prepaid＝已發放超過已到期的部分（預付）；notYetDue＝還沒到期、也還沒預付的 */
+  next: { payday: string; payable: number; prepaid: number; notYetDue: number };
 }
 
 async function rowsOf(db: any, recipientType: Recipient, id: number): Promise<any[]> {
@@ -143,20 +176,21 @@ async function rowsOf(db: any, recipientType: Recipient, id: number): Promise<an
     : db.select().from(salespersonLedger).where(eq(salespersonLedger.salespersonId, id)).orderBy(asc(salespersonLedger.createdAt), asc(salespersonLedger.id));
 }
 
-/** 一個人的發薪排程：從第一次發薪日排到全部到期為止 */
+/** 一個人的發薪排程 */
 export function scheduleFor(
   vest: Awaited<ReturnType<typeof loadVesting>>,
   person: { recipientType: Recipient; recipientId: number; name: string; isShipper: boolean },
   rows: any[],
+  days: string[],
   now = Date.now()
 ): PersonSchedule {
-  const days = paydayRange(FIRST_PAYDAY, vest.lastPayday(now));
   const payouts = rows.filter(isPayout);
-  const paidIn = (pd: string) => payouts.filter((r) => paydayOfPayout(r.createdAt) === pd).reduce((s, r) => s + r.personalAmount, 0);
+  const paidIn = (pd: string) => payouts.filter((r) => paydayOfPayout(r.createdAt, vest.dec31) === pd).reduce((s, r) => s + r.personalAmount, 0);
+  const cumAt = (cutoff: number) => Math.round(rows.reduce((s, r) => s + vest.vestedAt(r, cutoff), 0));
   let prev = 0;
   const paydays = days.map((payday) => {
     const cutoff = cutoffOf(payday);
-    const cumVested = Math.round(rows.reduce((s, r) => s + vest.vestedAt(r, cutoff), 0));
+    const cumVested = cumAt(cutoff);
     const due = cumVested - prev;
     prev = cumVested;
     const paidBeforeCutoff = payouts.filter((r) => r.createdAt < cutoff).reduce((s, r) => s + r.personalAmount, 0);
@@ -164,11 +198,18 @@ export function scheduleFor(
   });
   const totalPaid = payouts.reduce((s, r) => s + r.personalAmount, 0);
   const balance = rows.reduce((s, r) => s + ledgerDelta(r), 0);
-  const np = nextPayday(now);
-  const cum = paydays.find((p) => p.payday === np)?.cumVested ?? Math.round(rows.reduce((s, r) => s + vest.vestedAt(r, cutoffOf(np)), 0));
-  // 下次可發＝截至上個月底累計到期 − 已發放（下次發薪日當月已經先發的也扣掉）
+  const np = nextPayday(now, vest.dec31);
+  const cum = paydays.find((p) => p.payday === np)?.cumVested ?? cumAt(cutoffOf(np));
   const payable = Math.max(0, cum - totalPaid);
-  return { ...person, paydays, balance, totalPaid, next: { payday: np, payable, notYetDue: balance - payable } };
+  const prepaid = Math.max(0, totalPaid - cum);
+  return { ...person, paydays, balance, totalPaid, next: { payday: np, payable, prepaid, notYetDue: Math.max(0, balance - payable) } };
+}
+
+/** 下次發薪以後、每個人都是 0 的欄位不列 */
+function trimDays(days: string[], schedules: PersonSchedule[], next: string) {
+  let keep = days.length;
+  while (keep > 0 && days[keep - 1] > next && schedules.every((s) => (s.paydays[keep - 1]?.due ?? 0) === 0)) keep--;
+  return keep;
 }
 
 /** 所有人（老師、推銷者；出貨員的帳在同名推銷者底下，標成出貨員）的發薪排程，沒有任何帳的人略過 */
@@ -184,13 +225,18 @@ export async function payrollTable(db: any, now = Date.now()) {
       isShipper: shipperNames.has(s.name),
     })),
   ];
-  const out: PersonSchedule[] = [];
+  const withRows: { p: (typeof people)[number]; rows: any[] }[] = [];
   for (const p of people) {
     const rows = await rowsOf(db, p.recipientType, p.recipientId);
-    if (!rows.length) continue;
-    out.push(scheduleFor(vest, p, rows, now));
+    if (rows.length) withRows.push({ p, rows });
   }
-  return { paydays: paydayRange(FIRST_PAYDAY, vest.lastPayday(now)), nextPayday: nextPayday(now), people: out };
+  const last = vest.lastPayday(withRows.flatMap((x) => x.rows), now);
+  const days = paydayRange(FIRST_PAYDAY, last, vest.dec31);
+  const next = nextPayday(now, vest.dec31);
+  const out = withRows.map(({ p, rows }) => scheduleFor(vest, p, rows, days, now));
+  const keep = trimDays(days, out, next);
+  for (const s of out) s.paydays = s.paydays.slice(0, keep);
+  return { paydays: days.slice(0, keep), nextPayday: next, people: out };
 }
 
 export async function personSchedule(db: any, recipientType: Recipient, recipientId: number, now = Date.now()) {
@@ -200,8 +246,12 @@ export async function personSchedule(db: any, recipientType: Recipient, recipien
   if (!p) return null;
   const shipperNames = new Set((await db.select({ name: shippers.name }).from(shippers)).map((s: any) => s.name));
   const rows = await rowsOf(db, recipientType, recipientId);
-  const s = scheduleFor(vest, { recipientType, recipientId, name: p.name, isShipper: recipientType === "salesperson" && shipperNames.has(p.name) }, rows, now);
-  const payouts = rows.filter(isPayout).map((r: any) => ({ id: r.id, at: r.createdAt, amount: r.personalAmount, payday: paydayOfPayout(r.createdAt), itemName: r.itemName }));
+  const days = paydayRange(FIRST_PAYDAY, vest.lastPayday(rows, now), vest.dec31);
+  const s = scheduleFor(vest, { recipientType, recipientId, name: p.name, isShipper: recipientType === "salesperson" && shipperNames.has(p.name) }, rows, days, now);
+  s.paydays = s.paydays.slice(0, trimDays(days, [s], s.next.payday));
+  const payouts = rows
+    .filter(isPayout)
+    .map((r: any) => ({ id: r.id, at: r.createdAt, amount: r.personalAmount, payday: paydayOfPayout(r.createdAt, vest.dec31), itemName: r.itemName }));
   return { ...s, payouts };
 }
 

@@ -32,10 +32,37 @@ test("發薪日：每月 15 日發上個月底以前到期的；撥款算在同�
   assert.equal(cutoffOf("2026-12-15"), twDayStart("2026-12-01"));
   assert.equal(paydayOfPayout(at("2026-11-14")), "2026-11-15");
   assert.equal(paydayOfPayout(at("2026-11-20")), "2026-11-15");
+  // 12/31 加發：12 月下旬的下一次是 12/31，到期算到 12 月底；12/16 以後的撥款算 12/31 那次
+  assert.equal(nextPayday(at("2026-12-20"), true), "2026-12-31");
+  assert.equal(cutoffOf("2026-12-31"), twDayStart("2027-01-01"));
+  assert.equal(paydayOfPayout(at("2026-12-10"), true), "2026-12-15");
+  assert.equal(paydayOfPayout(at("2026-12-28"), true), "2026-12-31");
 });
 
-test("衝刺班按天攤提：上個月底以前入帳才算，插班生入班前的天數入帳後下一次一起發；書籍入帳就到期", async () => {
+test("登記前的帳（這一屆）入帳就到期，不攤提；12/31 加發 12 月的；先發了還沒到期的顯示已預付、不顯示負數", async () => {
   const { db, admin, dateEntry } = setup();
+  const a = await admin.mainLedger.createTutoringIncome({ items: [{ courseId: 4, amount: 27000 }] });
+  dateEntry(a.entry.id, "2026-10-20");
+  const b = await admin.mainLedger.createTutoringIncome({ items: [{ courseId: 4, amount: 27000 }] });
+  dateEntry(b.entry.id, "2026-12-10");
+  const t = await payrollTable(db, NOW);
+  const cai = t.people.find((p) => p.name === "蔡睿軒")!;
+  const each = cai.balance / 2;
+  assert.deepEqual(t.paydays, ["2026-11-15", "2026-12-15", "2026-12-31"]); // 沒有攤提，不用排到明年
+  assert.deepEqual(cai.paydays.map((p) => p.due), [each, 0, each]);
+  // 11/15 一次發完全部（含 12 月才入帳那筆）＝預付
+  await admin.payroll.markPaid({ recipientType: "teacher", recipientId: 2, amount: cai.balance, payday: "2026-11-15" });
+  const p = (await payrollTable(db, NOW)).people.find((x) => x.name === "蔡睿軒")!;
+  assert.equal(p.next.payable, 0);
+  assert.equal(p.next.prepaid, each);
+  assert.equal(p.next.notYetDue, 0);
+  assert.equal(p.balance, 0);
+});
+
+test("登記後的衝刺班按天攤提：上個月底以前入帳才算，插班生入班前的天數入帳後下一次一起發；書籍入帳就到期", async () => {
+  const { db, admin, dateEntry } = setup();
+  // 攤提只用在登記日以後入帳的（稅率設 0，這裡只看攤提）
+  await admin.revenueSettings.updateTaxReserve({ vatRatePercent: 0, registrationDate: "2026-01-01", reserveFloor: 0, reserveFrozen: 0, payDec31: false });
   const a = await admin.mainLedger.createTutoringIncome({ items: [{ courseId: 4, amount: 27000 }] });
   dateEntry(a.entry.id, "2026-10-20");
   const b = await admin.mainLedger.createTutoringIncome({ items: [{ courseId: 4, amount: 27000 }] });
@@ -73,7 +100,7 @@ test("部分入帳：沒收到的學費不到期，補收後下一個 15 日才�
   const full = 8800 - Math.round(8800 * 0.35);
   let p = await chen();
   assert.equal(p.paydays[0].cumVested, Math.round(full / 2));
-  assert.equal(p.paydays[1].cumVested, Math.round(full / 2));
+  assert.equal(p.paydays[p.paydays.length - 1].cumVested, Math.round(full / 2)); // 沒收到的那半永遠不到期
 
   await admin.mainLedger.receivePayment({ id: a.entry.id, amount: 4400 });
   sqlite.prepare("UPDATE payment_receipts SET received_at = ?").run(at("2026-11-20"));

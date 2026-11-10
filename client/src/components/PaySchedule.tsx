@@ -22,20 +22,27 @@ export default function PaySchedule({ kind, id }: { kind?: "teacher" | "salesper
   const upcoming = s.paydays.filter((p) => p.payday > s.next.payday && p.due > 0);
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${s.next.prepaid > 0 ? "lg:grid-cols-4" : "lg:grid-cols-3"} gap-4`}>
         <div className="card border-l-4 border-gold-500">
           <div className="text-sm text-slate-500">下次發薪 {paydayLabel(s.next.payday, true)} 可發</div>
           <div className="text-2xl font-semibold mt-1 text-brand-700">{fmt(s.next.payable)}</div>
-          <div className="text-xs text-slate-400 mt-1">截至上個月底已到期、還沒發的</div>
+          <div className="text-xs text-slate-400 mt-1">{s.next.payday.endsWith("-12-31") ? "截至 12 月底" : "截至上個月底"}已到期、還沒發的</div>
         </div>
+        {s.next.prepaid > 0 && (
+          <div className="card">
+            <div className="text-sm text-slate-500">已預付</div>
+            <div className="text-2xl font-semibold mt-1 text-emerald-700">{fmt(s.next.prepaid)}</div>
+            <div className="text-xs text-slate-400 mt-1">已經先發、還沒到期的部分，之後到期就不用再發</div>
+          </div>
+        )}
         <div className="card">
           <div className="text-sm text-slate-500">尚未到期</div>
           <div className="text-2xl font-semibold mt-1 text-slate-700">{fmt(s.next.notYetDue)}</div>
-          <div className="text-xs text-slate-400 mt-1">衝刺班還沒上的課、家長還沒繳的學費，到期後每月 15 日發</div>
+          <div className="text-xs text-slate-400 mt-1">還沒上的課、家長還沒繳的學費、這個月才入帳的，到期後下一次發薪發</div>
         </div>
         <div className="card">
           <div className="text-sm text-slate-500">公司目前欠款</div>
-          <div className="text-2xl font-semibold mt-1 text-amber-600">{fmt(s.balance)}</div>
+          <div className="text-2xl font-semibold mt-1 text-amber-600">{fmt(Math.max(0, s.balance))}</div>
           <div className="text-xs text-slate-400 mt-1">＝可發 ＋ 尚未到期</div>
         </div>
       </div>

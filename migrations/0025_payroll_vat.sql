@@ -5,9 +5,11 @@ ALTER TABLE revenue_settings ADD COLUMN registration_date TEXT;
 -- 3. 公積金最低水位與補稅準備（凍結）
 ALTER TABLE revenue_settings ADD COLUMN reserve_floor INTEGER NOT NULL DEFAULT 100000;
 ALTER TABLE revenue_settings ADD COLUMN reserve_frozen INTEGER NOT NULL DEFAULT 37000;
+-- 2. 每年 12/31 加發一次（把 12 月已到期的一起發）
+ALTER TABLE revenue_settings ADD COLUMN pay_dec31 INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE main_ledger ADD COLUMN tax_amount INTEGER NOT NULL DEFAULT 0;
 
--- 2. 小班衝刺班的分潤／行政費依課程期間按天攤提：記下這一行屬於哪一門衝刺班
+-- 2. 小班衝刺班的分潤／行政費依課程期間按天攤提（只用在稅籍登記日以後入帳的）：記下這一行屬於哪一門衝刺班
 ALTER TABLE teacher_ledger ADD COLUMN vest_course_id INTEGER;
 ALTER TABLE salesperson_ledger ADD COLUMN vest_course_id INTEGER;
 UPDATE teacher_ledger SET vest_course_id = (

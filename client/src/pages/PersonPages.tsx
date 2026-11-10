@@ -110,7 +110,7 @@ export function PersonDashboardPage({ kind }: { kind: Kind }) {
         </div>
         <div className="card">
           <div className="text-sm text-slate-500">公司目前欠款</div>
-          <div className={`text-2xl font-semibold mt-1 ${(s?.balance ?? 0) > 0 ? "text-amber-600" : "text-slate-700"}`}>{fmt(s?.balance ?? 0)}</div>
+          <div className={`text-2xl font-semibold mt-1 ${(s?.balance ?? 0) > 0 ? "text-amber-600" : "text-slate-700"}`}>{fmt(Math.max(0, s?.balance ?? 0))}</div>
           <div className="text-xs text-slate-400 mt-1">還沒發的薪資＋代墊{(s?.loan ?? 0) > 0 ? "＋創始基金" : ""}</div>
         </div>
         {(s?.loan ?? 0) > 0 ? (

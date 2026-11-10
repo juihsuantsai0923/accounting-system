@@ -24,7 +24,7 @@ type Person = {
   isShipper: boolean;
   balance: number;
   totalPaid: number;
-  next: { payday: string; payable: number; notYetDue: number };
+  next: { payday: string; payable: number; prepaid: number; notYetDue: number };
   paydays: { payday: string; due: number; paid: number }[];
 };
 
@@ -85,14 +85,15 @@ export default function PayrollPage() {
 
   function download() {
     if (!t) return;
-    const headers = ["身份", "姓名", ...t.paydays.flatMap((pd) => [`${pd} 應發`, `${pd} 已發`]), "已發合計", "公司欠款", `${t.nextPayday} 可發`, "尚未到期"];
+    const headers = ["身份", "姓名", ...t.paydays.flatMap((pd) => [`${pd} 應發`, `${pd} 已發`]), "已發合計", "公司欠款", `${t.nextPayday} 可發`, "已預付", "尚未到期"];
     const rows = people.map((p) => [
       p.recipientType === "teacher" ? "教師" : p.isShipper ? "出貨員" : "推銷者",
       p.name,
       ...p.paydays.flatMap((d) => [d.due, d.paid]),
       p.totalPaid,
-      p.balance,
+      Math.max(0, p.balance),
       p.next.payable,
+      p.next.prepaid,
       p.next.notYetDue,
     ]);
     downloadTextFile(`發薪表_${new Date().toISOString().slice(0, 10)}.csv`, csv(headers, rows));
@@ -110,8 +111,8 @@ export default function PayrollPage() {
         </button>
       </div>
       <p className="text-sm text-slate-600">
-        每月 15 日發「截至上個月底已到期 − 已發放」。衝刺班依課程期間按天攤提；書籍、線上課程、試上、代墊入帳就到期；家長還沒繳的學費，收到後下一個 15 日才發。
-        之後的欄位是依目前的帳預估。
+        每月 15 日發「截至上個月底已到期 − 已發放」，12/31 另外加發 12 月到期的。稅籍登記日以後入帳的衝刺班依課程期間按天攤提；登記前的帳、書籍、線上課程、試上、代墊入帳就到期；
+        家長還沒繳的學費，收到後下一次才發。先發了還沒到期的＝已預付。之後的欄位是依目前的帳預估。
       </p>
       {!t ? (
         <div className="text-slate-400">載入中…</div>
@@ -150,13 +151,14 @@ export default function PayrollPage() {
                         {isNext && (
                           <>
                             <div className="text-xs text-amber-800">可發 {fmt(p.next.payable)}</div>
+                            {p.next.prepaid > 0 && <div className="text-xs text-emerald-700">已預付 {fmt(p.next.prepaid)}</div>}
                             {manage && p.next.payable > 0 && <PayButton p={p} payday={d.payday} />}
                           </>
                         )}
                       </td>
                     );
                   })}
-                  <td className="px-3 py-2 text-right tabular-nums">{fmt(p.balance)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(Math.max(0, p.balance))}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-slate-500">{fmt(p.next.notYetDue)}</td>
                 </tr>
               ))}
@@ -169,7 +171,7 @@ export default function PayrollPage() {
                     {pd === t.nextPayday && <div className="text-xs text-amber-800">可發 {fmt(sum((p) => p.next.payable))}</div>}
                   </td>
                 ))}
-                <td className="px-3 py-2 text-right tabular-nums">{fmt(sum((p) => p.balance))}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmt(sum((p) => Math.max(0, p.balance)))}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{fmt(sum((p) => p.next.notYetDue))}</td>
               </tr>
             </tbody>

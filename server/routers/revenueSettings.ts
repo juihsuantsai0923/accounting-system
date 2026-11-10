@@ -47,6 +47,7 @@ export const revenueSettingsRouter = router({
         registrationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
         reserveFloor: z.number().int().min(0),
         reserveFrozen: z.number().int().min(0),
+        payDec31: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -57,6 +58,7 @@ export const revenueSettingsRouter = router({
         registrationDate: input.registrationDate,
         reserveFloor: input.reserveFloor,
         reserveFrozen: input.reserveFrozen,
+        ...(input.payDec31 === undefined ? {} : { payDec31: input.payDec31 }),
         updatedAt: Date.now(),
       };
       await db.update(revenueSettings).set(values).where(eq(revenueSettings.id, 1));
