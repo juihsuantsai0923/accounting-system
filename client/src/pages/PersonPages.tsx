@@ -4,13 +4,11 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { trpc } from "../lib/trpc";
 import ItemCell from "../components/ItemCell";
 import { downloadTextFile } from "../lib/download";
-import { BRAND, GRID, INK_MUTED, MonthlyRevenueChart, fmt, fmtShort, niceTicks, tooltipStyle } from "../components/DashboardCharts";
-import { ReserveTrendChart } from "../components/DashboardAnalytics";
-import LevelCard from "../components/LevelCard";
+import { BRAND, GRID, INK_MUTED, fmt, fmtShort, niceTicks, tooltipStyle } from "../components/DashboardCharts";
 import PaySchedule from "../components/PaySchedule";
 
 /**
- * 老師／推銷者的個人頁：「儀表板」（累積分潤、已發放、每月發放圖）和「帳本」（子記帳表，唯讀，可篩選排序）。
+ * 老師／推銷者的個人頁：「儀表板」（下次發放、累積分潤、已發放、每月發放圖；只有個人的，不放全公司數字）和「帳本」（子記帳表，唯讀，可篩選排序）。
  * 本人登入時看自己的；管理員從「人員」選單點進來看任何人的。
  */
 type Kind = "teacher" | "salesperson";
@@ -64,12 +62,6 @@ export function PersonDashboardPage({ kind }: { kind: Kind }) {
   const q = trpc.reports.personDashboard.useQuery({ recipientType: kind, recipientId: id }, { enabled: !!id });
   const s = q.data;
   const [showTable, setShowTable] = useState(false);
-  // 全公司三個總數（老師也看得到；推銷者沒有權限，就不顯示）
-  const company = trpc.reports.companySummary.useQuery(undefined, { enabled: kind === "teacher", retry: false });
-  const revenue = trpc.reports.revenueEntries.useQuery(undefined, { enabled: kind === "teacher", retry: false });
-  const timeline = trpc.reports.timeline.useQuery(undefined, { enabled: kind === "teacher", retry: false });
-  const courses = trpc.courses.list.useQuery(undefined, { enabled: kind === "teacher" });
-  const courseNames = useMemo(() => new Set((courses.data ?? []).map((c: any) => c.name as string)), [courses.data]);
 
   // 每月已發放：補齊中間沒有發放的月份，時間軸才不會跳
   const monthly = useMemo(() => {
@@ -96,6 +88,9 @@ export function PersonDashboardPage({ kind }: { kind: Kind }) {
     <div className="space-y-6">
       <PersonHeader kind={kind} id={id} name={name} />
       {q.error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{q.error.message}</div>}
+
+      {/* 只顯示個人的資料（2026-11-10 使用者要求：老師頁不放全公司數字）；最上面是下次發放 */}
+      <PaySchedule kind={kind} id={id} />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="card">
@@ -127,39 +122,6 @@ export function PersonDashboardPage({ kind }: { kind: Kind }) {
           </div>
         )}
       </div>
-
-      <PaySchedule kind={kind} id={id} />
-
-      {company.data && (
-        <div className="space-y-2">
-          <div className="text-sm text-slate-500">全公司（累計）</div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="card">
-              <div className="text-sm text-slate-500">總收入</div>
-              <div className="text-2xl font-semibold mt-1 text-emerald-600">{fmt(company.data.totalIncome)}</div>
-            </div>
-            <div className="card">
-              <div className="text-sm text-slate-500">總支出</div>
-              <div className="text-2xl font-semibold mt-1 text-red-600">{fmt(company.data.totalExpense)}</div>
-            </div>
-            <div className="card">
-              <div className="text-sm text-slate-500">公積金增減</div>
-              <div className={`text-2xl font-semibold mt-1 ${company.data.reserveChange < 0 ? "text-red-600" : "text-brand-700"}`}>
-                {company.data.reserveChange > 0 ? "+" : ""}
-                {fmt(company.data.reserveChange)}
-              </div>
-              <div className="text-xs text-slate-400 mt-1">收入留給公司的部分 − 公帳支出</div>
-            </div>
-          </div>
-          {revenue.data && <LevelCard entries={revenue.data} />}
-          {revenue.data && timeline.data && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <MonthlyRevenueChart entries={revenue.data} courseNames={courseNames} />
-              <ReserveTrendChart timeline={timeline.data} />
-            </div>
-          )}
-        </div>
-      )}
 
       <div className="card">
         <div className="mb-3">

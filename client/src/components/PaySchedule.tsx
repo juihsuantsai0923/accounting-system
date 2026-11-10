@@ -4,6 +4,13 @@ function fmt(n: number) {
   return n < 0 ? `−NT$${Math.abs(n).toLocaleString()}` : `NT$${n.toLocaleString()}`;
 }
 
+/** 2026-11-30 → 2026 年 11 月 30 日（週一） */
+export function fullDate(pd: string) {
+  const [y, m, d] = pd.split("-").map(Number);
+  const w = "日一二三四五六"[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${y} 年 ${m} 月 ${d} 日（週${w}）`;
+}
+
 /** 2026-12-31 → 12/31（withYear 加年份） */
 export function paydayLabel(pd: string, withYear = false) {
   const [y, m, d] = pd.split("-").map(Number);
@@ -22,28 +29,22 @@ export default function PaySchedule({ kind, id }: { kind?: "teacher" | "salesper
   const upcoming = s.paydays.filter((p) => p.payday > s.next.payday && p.due > 0);
   return (
     <div className="space-y-4">
-      <div className={`grid grid-cols-1 sm:grid-cols-2 ${s.next.prepaid > 0 ? "lg:grid-cols-4" : "lg:grid-cols-3"} gap-4`}>
-        <div className="card border-l-4 border-gold-500">
-          <div className="text-sm text-slate-500">下次發薪 {paydayLabel(s.next.payday, true)} 可發</div>
-          <div className="text-2xl font-semibold mt-1 text-brand-700">{fmt(s.next.payable)}</div>
-          <div className="text-xs text-slate-400 mt-1">截至這個月底已到期、還沒發的</div>
-        </div>
-        {s.next.prepaid > 0 && (
-          <div className="card">
-            <div className="text-sm text-slate-500">已預付</div>
-            <div className="text-2xl font-semibold mt-1 text-emerald-700">{fmt(s.next.prepaid)}</div>
-            <div className="text-xs text-slate-400 mt-1">已經先發、還沒到期的部分，之後到期就不用再發</div>
+      <div className="rounded-2xl bg-brand-700 text-white px-6 py-5 shadow-card">
+        <div className="text-sm text-white/70 tracking-widest">下次發放</div>
+        <div className="mt-2 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+          <div>
+            <div className="text-xs text-white/60">發放日</div>
+            <div className="text-2xl sm:text-3xl font-semibold">{fullDate(s.next.payday)}</div>
           </div>
-        )}
-        <div className="card">
-          <div className="text-sm text-slate-500">尚未到期</div>
-          <div className="text-2xl font-semibold mt-1 text-slate-700">{fmt(s.next.notYetDue)}</div>
-          <div className="text-xs text-slate-400 mt-1">還沒上的課、家長還沒繳的學費，到期後的月底發</div>
+          <div className="sm:text-right">
+            <div className="text-xs text-white/60">發放金額</div>
+            <div className="text-3xl sm:text-4xl font-semibold text-gold-400">{fmt(s.next.payable)}</div>
+          </div>
         </div>
-        <div className="card">
-          <div className="text-sm text-slate-500">公司目前欠款</div>
-          <div className="text-2xl font-semibold mt-1 text-amber-600">{fmt(Math.max(0, s.balance))}</div>
-          <div className="text-xs text-slate-400 mt-1">＝可發 ＋ 尚未到期</div>
+        <div className="mt-3 text-xs text-white/60">
+          每月最後一天發薪，發的是到那天為止已到期、還沒發的金額。
+          {s.next.prepaid > 0 && <span className="text-white/90">　已預付 {fmt(s.next.prepaid)}（先發了還沒到期的，之後到期就不再發）。</span>}
+          {s.next.notYetDue > 0 && <span>　尚未到期 {fmt(s.next.notYetDue)}（還沒上的課、家長還沒繳的學費），到期後的月底發。</span>}
         </div>
       </div>
 

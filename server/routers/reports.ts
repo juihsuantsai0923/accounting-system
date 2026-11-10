@@ -129,8 +129,8 @@ export const reportsRouter = router({
    * 用來畫公積金走勢；跟儀表板的公積金卡片同一個算法，代墊也有算進欠款。
    */
   timeline: protectedProcedure.query(async ({ ctx }) => {
-    // 老師的個人儀表板也會畫公積金走勢（只有每月總數，看不到明細）
-    if (ctx.user.role === "salesperson_self") {
+    // 2026-11-10 起老師頁只放個人資料，全公司走勢只給管理員
+    if (ctx.user.role === "salesperson_self" || ctx.user.role === "teacher_self") {
       throw new TRPCError({ code: "FORBIDDEN", message: "無權查看全公司統計" });
     }
     const events: { month: string; balanceDelta: number; owedDelta: number }[] = [];
@@ -188,7 +188,7 @@ export const reportsRouter = router({
    */
   /** 月營業額圖用：每筆收入只給金額、類別、來源、日期（不含項目名稱、備註、買家），老師的個人儀表板也看得到 */
   revenueEntries: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.user.role === "salesperson_self") throw new TRPCError({ code: "FORBIDDEN", message: "無權查看" });
+    if (ctx.user.role === "salesperson_self" || ctx.user.role === "teacher_self") throw new TRPCError({ code: "FORBIDDEN", message: "無權查看" });
     const rows = await ctx.db.select().from(mainLedger).where(isNull(mainLedger.deletedAt)).orderBy(asc(mainLedger.id));
     return (rows as any[])
       .filter((r) => r.type === "income")
@@ -206,7 +206,7 @@ export const reportsRouter = router({
   }),
 
   companySummary: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.user.role === "salesperson_self") throw new TRPCError({ code: "FORBIDDEN", message: "無權查看" });
+    if (ctx.user.role === "salesperson_self" || ctx.user.role === "teacher_self") throw new TRPCError({ code: "FORBIDDEN", message: "無權查看" });
     const rows = await ctx.db.select().from(mainLedger).where(isNull(mainLedger.deletedAt));
     const sums: { mainLedgerId: number; amount: number }[] = await ctx.db.select().from(ledgerDistribution);
     const distributed = new Map<number, number>();
