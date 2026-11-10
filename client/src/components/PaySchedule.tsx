@@ -4,14 +4,14 @@ function fmt(n: number) {
   return n < 0 ? `−NT$${Math.abs(n).toLocaleString()}` : `NT$${n.toLocaleString()}`;
 }
 
-/** 2026-12-15 → 12/15（跨年加年份） */
+/** 2026-12-31 → 12/31（withYear 加年份） */
 export function paydayLabel(pd: string, withYear = false) {
   const [y, m, d] = pd.split("-").map(Number);
   return withYear ? `${y}/${m}/${d}` : `${m}/${d}`;
 }
 
 /**
- * 發薪：每月 15 日發「截至上個月底已到期 − 已發放」。
+ * 發薪：每月月底發「當月底以前已到期 − 已發放」。
  * 管理員看任何人（傳 kind/id）；老師、推銷者、出貨員本人只拿得到自己的（後端會換成本人）。
  */
 export default function PaySchedule({ kind, id }: { kind?: "teacher" | "salesperson"; id?: number }) {
@@ -26,7 +26,7 @@ export default function PaySchedule({ kind, id }: { kind?: "teacher" | "salesper
         <div className="card border-l-4 border-gold-500">
           <div className="text-sm text-slate-500">下次發薪 {paydayLabel(s.next.payday, true)} 可發</div>
           <div className="text-2xl font-semibold mt-1 text-brand-700">{fmt(s.next.payable)}</div>
-          <div className="text-xs text-slate-400 mt-1">{s.next.payday.endsWith("-12-31") ? "截至 12 月底" : "截至上個月底"}已到期、還沒發的</div>
+          <div className="text-xs text-slate-400 mt-1">截至這個月底已到期、還沒發的</div>
         </div>
         {s.next.prepaid > 0 && (
           <div className="card">
@@ -38,7 +38,7 @@ export default function PaySchedule({ kind, id }: { kind?: "teacher" | "salesper
         <div className="card">
           <div className="text-sm text-slate-500">尚未到期</div>
           <div className="text-2xl font-semibold mt-1 text-slate-700">{fmt(s.next.notYetDue)}</div>
-          <div className="text-xs text-slate-400 mt-1">還沒上的課、家長還沒繳的學費、這個月才入帳的，到期後下一次發薪發</div>
+          <div className="text-xs text-slate-400 mt-1">還沒上的課、家長還沒繳的學費，到期後的月底發</div>
         </div>
         <div className="card">
           <div className="text-sm text-slate-500">公司目前欠款</div>

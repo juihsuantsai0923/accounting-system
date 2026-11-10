@@ -496,11 +496,11 @@ export function PersonStatementPage({ kind }: { kind: Kind }) {
   const total = (list: any[]) => list.reduce((s, r) => s + deltaOf(r), 0);
   const closing = opening + total(inMonth);
   const [y, m] = selected.split("-");
-  // 月底欠款拆成「截至月底已到期（下個月 15 日發）」和「尚未到期」
+  // 月底欠款拆成「截至月底已到期、還沒發」和「尚未到期」（發薪日＝每月月底）
   const sched = trpc.payroll.person.useQuery({ recipientType: kind, recipientId: id }, { enabled: !!id, retry: false });
   const nextPd = (() => {
     const [yy, mm] = selected.split("-").map(Number);
-    return mm === 12 ? `${yy + 1}-01-15` : `${yy}-${String(mm + 1).padStart(2, "0")}-15`;
+    return `${selected}-${String(new Date(Date.UTC(yy, mm, 0)).getUTCDate()).padStart(2, "0")}`;
   })();
   const pd = sched.data?.paydays.find((p) => p.payday === nextPd);
   const dueAtMonthEnd = pd ? Math.max(0, pd.cumVested - pd.paidBeforeCutoff) : null;
@@ -556,7 +556,7 @@ export function PersonStatementPage({ kind }: { kind: Kind }) {
 
         {dueAtMonthEnd != null && (
           <div className="text-sm text-slate-700 bg-amber-50 rounded-lg px-3 py-2">
-            月底欠款中，截至月底<b>已到期 {fmt(dueAtMonthEnd)}</b>（{Number(nextPd.slice(5, 7))}/15 發），
+            月底欠款中，截至月底<b>已到期、還沒發 {fmt(dueAtMonthEnd)}</b>，
             <b>尚未到期 {fmt(closing - dueAtMonthEnd)}</b>（衝刺班還沒上的課、家長還沒繳的學費）。
           </div>
         )}

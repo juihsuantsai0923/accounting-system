@@ -747,7 +747,7 @@ function TaxReserveSettingsAdmin() {
       utils.payroll.invalidate();
     },
   });
-  const [form, setForm] = useState({ vatRatePercent: "5", registrationDate: "", reserveFloor: "100000", reserveFrozen: "37000", payDec31: true });
+  const [form, setForm] = useState({ vatRatePercent: "5", registrationDate: "", reserveFloor: "100000", reserveFrozen: "37000" });
   const [msg, setMsg] = useState<string | null>(null);
   useEffect(() => {
     const s: any = settingsQuery.data?.settings;
@@ -757,7 +757,6 @@ function TaxReserveSettingsAdmin() {
       registrationDate: s.registrationDate ?? "",
       reserveFloor: String(s.reserveFloor),
       reserveFrozen: String(s.reserveFrozen),
-      payDec31: !!s.payDec31,
     });
   }, [settingsQuery.data]);
   return (
@@ -765,7 +764,7 @@ function TaxReserveSettingsAdmin() {
       <div className="text-sm text-slate-600 space-y-1">
         <p>稅籍登記日當天或之後入帳的收入，先扣「實收 × 5/105」放稅金準備，剩下的再照上面的比例分（網紅佣金也用扣稅後的金額算）。登記日以前的帳不扣、不重算。</p>
         <p>補稅準備（凍結）是公積金的一部分，先標記不能用；問完記帳士要解除就改成 0。</p>
-        <p>發薪：每月 15 日發上個月底以前到期的；登記日以後入帳的衝刺班才依課程期間按天攤提，登記前的帳入帳就到期。</p>
+        <p>發薪：每月月底發當月底以前到期的；登記日以後入帳的衝刺班才依課程期間按天攤提，登記前的帳入帳就到期。</p>
       </div>
       <form
         className="grid grid-cols-1 sm:grid-cols-5 gap-4 items-end"
@@ -778,7 +777,6 @@ function TaxReserveSettingsAdmin() {
               registrationDate: form.registrationDate || null,
               reserveFloor: parseInt(form.reserveFloor || "0", 10),
               reserveFrozen: parseInt(form.reserveFrozen || "0", 10),
-              payDec31: form.payDec31,
             });
             setMsg("已儲存");
           } catch (err: any) {
@@ -805,10 +803,6 @@ function TaxReserveSettingsAdmin() {
         <button className="btn-primary" type="submit" disabled={update.isPending}>
           {update.isPending ? "儲存中..." : "儲存"}
         </button>
-        <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-5">
-          <input type="checkbox" checked={form.payDec31} onChange={(e) => setForm({ ...form, payDec31: e.target.checked })} />
-          每年 12/31 加發一次（12 月已到期的一起發）
-        </label>
       </form>
       {msg && <div className="text-sm text-slate-600">{msg}</div>}
     </Section>

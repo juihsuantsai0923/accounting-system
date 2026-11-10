@@ -190,7 +190,7 @@ export const mainLedgerRouter = router({
       if (input.amount > before.unpaidAmount) throw new TRPCError({ code: "BAD_REQUEST", message: `這筆只剩 ${before.unpaidAmount} 元未入帳` });
       const unpaidAmount = before.unpaidAmount - input.amount;
       await ctx.db.update(mainLedger).set({ unpaidAmount, updatedAt: Date.now() }).where(eq(mainLedger.id, input.id));
-      // 補收的這部分，對應的分潤從今天起才算到期（下一個 15 日發）
+      // 補收的這部分，對應的分潤從今天起才算到期（收到那個月的月底發）
       await ctx.db.insert(paymentReceipts).values({ mainLedgerId: input.id, amount: input.amount, receivedAt: Date.now() });
       await writeAudit(ctx.db, ctx.user.id, "receivePayment", "mainLedger", input.id, { unpaidAmount: before.unpaidAmount }, { unpaidAmount });
       return { unpaidAmount };

@@ -75,7 +75,7 @@ async function yearEndPlan(db: any, year: number, reservedNextYear: number) {
 }
 
 export const payrollRouter = router({
-  /** 發薪表：每個人一列，每個 15 日一欄（應發＝那次新到期的金額、已發＝那個月的薪水撥款） */
+  /** 發薪表：每個人一列，每個月底一欄（應發＝那個月新到期的金額、已發＝那個月的薪水撥款） */
   table: protectedProcedure.query(async ({ ctx }) => {
     assertSeesEveryone(ctx.user.role);
     return payrollTable(ctx.db);
@@ -113,7 +113,7 @@ export const payrollRouter = router({
     .input(
       recipientInput.extend({
         amount: z.number().int().positive("發放金額必須大於 0"),
-        payday: z.string().regex(/^\d{4}-(\d{2}-15|12-31)$/),
+        payday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       })
     )

@@ -307,8 +307,6 @@ export const revenueSettings = sqliteTable("revenue_settings", {
   // 公積金最低水位、補稅準備（凍結，公積金的一部分，先標記不可用）
   reserveFloor: integer("reserve_floor").notNull().default(100000),
   reserveFrozen: integer("reserve_frozen").notNull().default(37000),
-  // 每年 12/31 加發一次（12 月已到期的一起發）
-  payDec31: integer("pay_dec31", { mode: "boolean" }).notNull().default(true),
   updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
 });
 
