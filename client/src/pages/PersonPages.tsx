@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, useParams } from "react-router-dom";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { trpc } from "../lib/trpc";
 import ItemCell from "../components/ItemCell";
 import { downloadTextFile } from "../lib/download";
@@ -177,6 +177,103 @@ export function PersonDashboardPage({ kind }: { kind: Kind }) {
           </>
         )}
       </div>
+
+      <EarnedVsPayChart kind={kind} id={id} monthly={monthly} />
+    </div>
+  );
+}
+
+const GOLD = "#c8860f";
+
+/**
+ * 每月業績（當月分到的分潤）與欲發放薪資（每個月底預計發的，含分期計畫）。
+ * 業績看的是哪個月入帳；發放看的是哪個月底發，衝刺班按天攤提、登記前的帳分期，所以兩條線不會一樣。
+ */
+function EarnedVsPayChart({ kind, id, monthly }: { kind: Kind; id: number; monthly: { month: string; earned: number }[] }) {
+  const sched = trpc.payroll.person.useQuery({ recipientType: kind, recipientId: id }, { enabled: !!id, retry: false });
+  const [showTable, setShowTable] = useState(false);
+  const data = useMemo(() => {
+    const m = new Map<string, { month: string; earned: number | null; pay: number | null }>();
+    for (const r of monthly) m.set(r.month, { month: r.month, earned: r.earned, pay: null });
+    for (const p of sched.data?.paydays ?? []) {
+      const k = p.payday.slice(0, 7);
+      m.set(k, { month: k, earned: m.get(k)?.earned ?? null, pay: p.plan });
+    }
+    const keys = [...m.keys()].sort();
+    // 業績只畫到這個月；發放畫到最後一次發薪
+    const thisMonth = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    return keys.map((k) => {
+      const v = m.get(k)!;
+      return { ...v, earned: k <= thisMonth ? v.earned ?? 0 : null };
+    });
+  }, [monthly, sched.data]);
+  const max = Math.max(0, ...data.map((d) => Math.max(d.earned ?? 0, d.pay ?? 0)));
+  return (
+    <div className="card">
+      <div className="mb-3">
+        <h2 className="font-medium text-brand-700">每月業績與欲發放薪資</h2>
+        <p className="text-xs text-slate-400 mt-0.5">業績＝當月入帳分到的分潤；欲發放＝每個月底預計發給你的（衝刺班依上課進度、這一屆分期發），之後的月份是依目前的帳預估。</p>
+      </div>
+      {!data.length || max === 0 ? (
+        <div className="text-sm text-slate-400 py-10 text-center">還沒有資料</div>
+      ) : (
+        <>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data} margin={{ top: 16, right: 16, left: 8, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke={GRID} />
+                <XAxis dataKey="month" tickLine={false} axisLine={{ stroke: GRID }} tick={{ fill: INK_MUTED, fontSize: 12 }} />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: INK_MUTED, fontSize: 12 }}
+                  ticks={niceTicks(max)}
+                  domain={[0, "dataMax"]}
+                  tickFormatter={fmtShort}
+                  width={48}
+                />
+                <Tooltip {...tooltipStyle()} formatter={(v: number, name: string) => [fmt(v), name]} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Line type="monotone" dataKey="earned" name="每月業績" stroke={BRAND} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} isAnimationActive={false} />
+                <Line
+                  type="monotone"
+                  dataKey="pay"
+                  name="欲發放薪資"
+                  stroke={GOLD}
+                  strokeWidth={2}
+                  strokeDasharray="5 4"
+                  dot={{ r: 3 }}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <button type="button" className="mt-2 text-xs text-brand-600 hover:underline" onClick={() => setShowTable((v) => !v)}>
+            {showTable ? "隱藏表格" : "顯示表格"}
+          </button>
+          {showTable && (
+            <table className="data-table mt-2">
+              <thead>
+                <tr>
+                  <th>月份</th>
+                  <th>每月業績</th>
+                  <th>欲發放薪資</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((r) => (
+                  <tr key={r.month}>
+                    <td>{r.month}</td>
+                    <td>{r.earned == null ? "-" : fmt(r.earned)}</td>
+                    <td>{r.pay == null ? "-" : fmt(r.pay)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
     </div>
   );
 }

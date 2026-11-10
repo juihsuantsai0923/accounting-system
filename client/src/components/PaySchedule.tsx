@@ -26,8 +26,7 @@ export default function PaySchedule({ kind, id }: { kind?: "teacher" | "salesper
   const s = q.data;
   if (q.error) return <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{q.error.message}</div>;
   if (!s) return null;
-  const upcoming = s.paydays.filter((p) => p.payday > s.next.payday && p.plan > 0);
-  const laterDay = upcoming[0]?.payday;
+  const laterDay = s.paydays.find((p) => p.payday > s.next.payday && p.plan > 0)?.payday;
   return (
     <div className="space-y-4">
       <div className="rounded-2xl bg-brand-700 text-white px-6 py-5 shadow-card">
@@ -52,43 +51,6 @@ export default function PaySchedule({ kind, id }: { kind?: "teacher" | "salesper
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card">
-          <div className="text-sm text-slate-500 mb-2">之後每次發薪（依目前的帳預估）</div>
-          {upcoming.length ? (
-            <table className="w-full text-sm">
-              <tbody>
-                {upcoming.map((p) => (
-                  <tr key={p.payday} className="border-t border-slate-100">
-                    <td className="py-1.5">{paydayLabel(p.payday, true)}</td>
-                    <td className="py-1.5 text-right tabular-nums">{fmt(p.plan)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="text-sm text-slate-400">之後沒有新到期的金額</div>
-          )}
-        </div>
-        <div className="card">
-          <div className="text-sm text-slate-500 mb-2">發薪紀錄</div>
-          {s.payouts.length ? (
-            <table className="w-full text-sm">
-              <tbody>
-                {[...s.payouts].reverse().map((p) => (
-                  <tr key={p.id} className="border-t border-slate-100">
-                    <td className="py-1.5">{new Date(p.at).toLocaleDateString()}</td>
-                    <td className="py-1.5 text-slate-500">{paydayLabel(p.payday)} 那次</td>
-                    <td className="py-1.5 text-right tabular-nums text-emerald-700">{fmt(p.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="text-sm text-slate-400">還沒發放過</div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
