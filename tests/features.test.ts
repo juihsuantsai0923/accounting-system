@@ -5,7 +5,7 @@ import { levelHistory, levelOf, thresholdOf } from "../client/src/lib/levels";
 import { buildCustomers, buildPnL, newVsReturning, type AEntry } from "../client/src/lib/analytics";
 import { runDueRecurring, twDate } from "../server/recurring";
 import { checkIntegrity } from "../server/integrity";
-import { orderMessage } from "../server/lineNotify";
+import { orderMessage, shipperNewOrderMessage } from "../server/lineNotify";
 
 test("等級門檻：1 萬起、每 10 級步距變大", () => {
   assert.equal(thresholdOf(1), 10_000);
@@ -122,4 +122,11 @@ test("LINE 訂單通知文字", () => {
   assert.match(t, /新訂單 LX-20261103-001/);
   assert.match(t, /NT\$3,300（待付款）/);
   assert.match(t, /LX-20261102-002（李大華）：待付款 → 課程已開通/);
+});
+
+test("出貨員只收新訂單：訊息有編號、買家、品項、狀態，不含金額", () => {
+  const text = shipperNewOrderMessage([{ orderNo: "LX-20261116-001", buyer: "王小明", statusLabel: "待付款", items: ["物理 四本全套", "運費"] }]);
+  assert.equal(text, "📦 新訂單 LX-20261116-001\n買家：王小明\n品項：物理 四本全套、運費\n狀態：待付款");
+  assert.ok(!text.includes("NT$"));
+  assert.equal(shipperNewOrderMessage([]), "");
 });
