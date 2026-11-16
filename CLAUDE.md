@@ -139,7 +139,7 @@ npx.cmd wrangler d1 execute accounting-system-db --remote --file=migrations/000X
 ## 工作習慣
 
 - 使用者以繁體中文溝通，回覆也請用繁體中文，並簡潔說明改了什麼、要跑哪些部署指令。
-- 每次改完都 commit（訊息用中文，結尾加 Co-Authored-By）。部署只在使用者說「部署」時做；改正式資料前先 `wrangler d1 export` 備份到 `03_網站與系統\記帳系統\資料庫備份\D1備份_日期_說明.sql`。
+- 每次改完都 commit（訊息用中文，結尾加 Co-Authored-By）。部署只在使用者說「部署」時做；改正式資料前先 `wrangler d1 export` 備份到 `Desktop\Leviax\03_網站與系統\記帳系統文件\資料庫備份\D1備份_日期_說明.sql`（程式本身 2026-11-16 起在 `C:\Users\juihs\code\記帳系統\accounting-system`，不在雲端硬碟，只靠 GitHub 備份）。
 - **不要在資料庫直接刪改帳務資料**：一定要改時，改完重算餘額，並看儀表板「需要注意」的帳務檢查（`server/integrity.ts`、`reports.integrity`：帳本餘額、子記帳表餘額、分配表與子記帳表是否一致）沒有警告。
 - 測試：`npm.cmd test`（`tests/`，node:test＋記憶體 SQLite，涵蓋折扣分攤、書籍分潤、行事曆、運費、舊帳重算、帳務檢查）。改 `revenueCalc.ts`、`webOrderRecord.ts`、`bookShares.ts` 後一定要跑。
 - wrangler 4 的 `d1 execute --remote --file=` 走 import API，2026-11-03 回 Authentication error 10000；改用 `--command "SQL"` 就可以。
