@@ -24,7 +24,7 @@ export async function createContext({ req }: CreateExpressContextOptions) {
       }
     }
   }
-  return { db, user: applyActAs(user, req.header("x-act-as")), jwtSecret: JWT_SECRET, googleClientId: process.env.GOOGLE_CLIENT_ID ?? "", line: { token: process.env.LINE_CHANNEL_ACCESS_TOKEN, to: process.env.LINE_NOTIFY_TO } };
+  return { db, user: applyActAs(user, req.header("x-act-as")), jwtSecret: JWT_SECRET, googleClientId: process.env.GOOGLE_CLIENT_ID ?? "", line: { token: process.env.LINE_CHANNEL_ACCESS_TOKEN, to: process.env.LINE_NOTIFY_TO, newOrderTo: process.env.LINE_NEW_ORDER_TO } };
 }
 
 export type Context = Awaited<ReturnType<typeof createContext>>;

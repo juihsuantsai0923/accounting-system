@@ -922,6 +922,17 @@ function LineNotifyAdmin() {
           <li>官網有新訂單、訂單狀態改變（例如待付款 → 已付款）時，馬上通知</li>
           <li>每天早上 9 點：自動記了哪些定期收支、帳務檢查有沒有問題、官網訂單有沒有對不上、待付款超過 3 天的訂單（沒事就不傳）</li>
         </ul>
+        {(status.data?.newOrderRecipients ?? []).length > 0 && (
+          <p>
+            另外只收「新訂單」通知（狀態改變、每日提醒不發）：
+            {status.data!.newOrderRecipients.map((r: any) => (
+              <span key={r.userId} className={`ml-1 ${r.error ? "text-red-600" : "text-emerald-700"}`}>
+                {r.name ?? r.userId.slice(0, 8) + "…"}
+                {r.error ? `（${r.error}，user ID 可能不對）` : ""}
+              </span>
+            ))}
+          </p>
+        )}
       </div>
       <div className="text-sm">
         目前狀態：

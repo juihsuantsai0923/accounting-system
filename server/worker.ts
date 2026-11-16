@@ -4,7 +4,7 @@ import { createD1Context, type Env } from "./context.d1";
 import { ensureAdmin } from "./ensureAdmin";
 import { ensureSalaryExpenseTypes } from "./ensureSalaryExpenseTypes";
 import { handlePushRequest, handleSyncRequest } from "./webOrdersSync";
-import { orderMessage, sendLine } from "./lineNotify";
+import { orderMessage, sendLine, shipperNewOrderMessage } from "./lineNotify";
 import { dailyJob } from "./dailyJob";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
@@ -55,9 +55,13 @@ export default {
         return withCors(Response.json({ error: "資料不是 JSON" }, { status: 400 }));
       }
       const line = { token: env.LINE_CHANNEL_ACCESS_TOKEN, to: env.LINE_NOTIFY_TO };
-      const [status, payload] = await handlePushRequest(drizzle(env.DB, { schema }), request.headers.get("authorization"), body, (c) =>
-        sendLine(line, orderMessage(c.created, c.changed))
-      );
+      const [status, payload] = await handlePushRequest(drizzle(env.DB, { schema }), request.headers.get("authorization"), body, async (c) => {
+        const r = await sendLine(line, orderMessage(c.created, c.changed));
+        // 出貨員只收新訂單（狀態改變不發）
+        if (c.created.length && env.LINE_NEW_ORDER_TO)
+          await sendLine({ token: env.LINE_CHANNEL_ACCESS_TOKEN, to: env.LINE_NEW_ORDER_TO }, shipperNewOrderMessage(c.created));
+        return r;
+      });
       return withCors(Response.json(payload, { status }));
     }
 

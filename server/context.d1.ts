@@ -16,6 +16,7 @@ export interface Env {
   /** LINE 通知（Worker secret，見 server/lineNotify.ts） */
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_NOTIFY_TO?: string;
+  LINE_NEW_ORDER_TO?: string;
 }
 
 /**
@@ -45,7 +46,7 @@ export function createD1Context(env: Env) {
         }
       }
     }
-    return { db, user: applyActAs(user, req.headers.get("x-act-as")), jwtSecret, googleClientId: env.GOOGLE_CLIENT_ID ?? "", line: { token: env.LINE_CHANNEL_ACCESS_TOKEN, to: env.LINE_NOTIFY_TO } };
+    return { db, user: applyActAs(user, req.headers.get("x-act-as")), jwtSecret, googleClientId: env.GOOGLE_CLIENT_ID ?? "", line: { token: env.LINE_CHANNEL_ACCESS_TOKEN, to: env.LINE_NOTIFY_TO, newOrderTo: env.LINE_NEW_ORDER_TO } };
   };
 }
 

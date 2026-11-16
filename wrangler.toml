@@ -27,4 +27,6 @@ crons = ["0 1 * * *"]
 
 # 公開設定（不是機密）：Google 登入的 OAuth 用戶端 ID（Google Cloud 專案 leviax-finance，2026-10-29 建立）
 [vars]
+# 只收「新訂單」LINE 通知的人（出貨員余彩霞 THYu，2026-11-16）；狀態改變、每日提醒不發。多人用逗號分開
+LINE_NEW_ORDER_TO = "Uab5449185a5e1e91b89fb1b35af02c66"
 GOOGLE_CLIENT_ID = "355603392015-ftr9j4g2rs2ce593e5njtm967qhq2s4g.apps.googleusercontent.com"
