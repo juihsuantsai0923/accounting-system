@@ -5,7 +5,7 @@ import { levelHistory, levelOf, thresholdOf } from "../client/src/lib/levels";
 import { buildCustomers, buildPnL, newVsReturning, type AEntry } from "../client/src/lib/analytics";
 import { runDueRecurring, twDate } from "../server/recurring";
 import { checkIntegrity } from "../server/integrity";
-import { orderMessage, shipperNewOrderMessage } from "../server/lineNotify";
+import { orderMessage, ordersToShip, shipperShippingMessage } from "../server/lineNotify";
 
 test("等級門檻：1 萬起、每 10 級步距變大", () => {
   assert.equal(thresholdOf(1), 10_000);
@@ -124,9 +124,36 @@ test("LINE 訂單通知文字", () => {
   assert.match(t, /LX-20261102-002（李大華）：待付款 → 課程已開通/);
 });
 
-test("出貨員只收新訂單：訊息有編號、買家、品項、狀態，不含金額", () => {
-  const text = shipperNewOrderMessage([{ orderNo: "LX-20261116-001", buyer: "王小明", statusLabel: "待付款", items: ["物理 四本全套", "運費"] }]);
-  assert.equal(text, "📦 新訂單 LX-20261116-001\n買家：王小明\n品項：物理 四本全套、運費\n狀態：待付款");
+test("出貨員只收待出貨：收到款、有書要寄才通知，訊息只列要寄的書、不含金額", () => {
+  const courses = new Set(["科學班物理衝刺班 2026-2027"]);
+  const toShip = ordersToShip(
+    [
+      // 新訂單還沒付款：不發
+      { orderNo: "LX-20261120-001", buyer: "王小明", statusLabel: "待付款", items: ["物理先修課程（四本全套）", "運費"] },
+      // 線上付款一進來就已開通：發，課程方案不列
+      { orderNo: "LX-20261120-002", buyer: "陳小美", statusLabel: "課程已開通", items: ["數學工具先修課程（一年方案）", "科學班倒數行事曆（2027 4月-2028 3月）"] },
+    ],
+    [
+      // 待付款 → 課程已開通（後台選「2. 待出貨」）：發，只列書
+      { orderNo: "LX-20261119-003", buyer: "李大華", from: "待付款", to: "課程已開通", items: ["科學班物理衝刺班 2026-2027", "物理先修課程（上下冊刷題本）", "運費"] },
+      // 只有課程：不發
+      { orderNo: "LX-20261119-004", buyer: "林小安", from: "待付款", to: "課程已開通", items: ["科學班物理衝刺班 2026-2027"] },
+      // 直接完成（書已寄）、已開通 → 完成、取消：不發
+      { orderNo: "LX-20261119-005", buyer: "張小強", from: "待付款", to: "訂單完成", items: ["物理先修課程（四本全套）"] },
+      { orderNo: "LX-20261119-006", buyer: "張小強", from: "課程已開通", to: "訂單完成", items: ["物理先修課程（四本全套）"] },
+      { orderNo: "LX-20261119-007", buyer: "張小強", from: "待付款", to: "已取消", items: ["物理先修課程（四本全套）"] },
+    ],
+    courses
+  );
+  assert.deepEqual(
+    toShip.map((o) => o.orderNo),
+    ["LX-20261120-002", "LX-20261119-003"]
+  );
+  const text = shipperShippingMessage(toShip);
+  assert.equal(
+    text,
+    "📦 待出貨 LX-20261120-002\n買家：陳小美\n要寄：科學班倒數行事曆（2027 4月-2028 3月）\n\n📦 待出貨 LX-20261119-003\n買家：李大華\n要寄：物理先修課程（上下冊刷題本）"
+  );
   assert.ok(!text.includes("NT$"));
-  assert.equal(shipperNewOrderMessage([]), "");
+  assert.equal(shipperShippingMessage([]), "");
 });

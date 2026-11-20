@@ -924,7 +924,7 @@ function LineNotifyAdmin() {
         </ul>
         {(status.data?.newOrderRecipients ?? []).length > 0 && (
           <p>
-            另外只收「新訂單」通知（狀態改變、每日提醒不發）：
+            出貨員只收「待出貨」通知（收到款、有書要寄時；其他狀態改變、每日提醒不發）：
             {status.data!.newOrderRecipients.map((r: any) => (
               <span key={r.userId} className={`ml-1 ${r.error ? "text-red-600" : "text-emerald-700"}`}>
                 {r.name ?? r.userId.slice(0, 8) + "…"}

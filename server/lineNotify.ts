@@ -2,13 +2,13 @@
  * LINE 通知：用 LINE 官方帳號（Messaging API）推播給管理員。
  *   LINE_CHANNEL_ACCESS_TOKEN：Messaging API 的 Channel access token（Worker secret）
  *   LINE_NOTIFY_TO：要收通知的人的 LINE user ID（LINE Developers → 該 channel → Basic settings → Your user ID），多人用逗號分開（Worker secret）
- *   LINE_NEW_ORDER_TO：只收「新訂單」的人（例如出貨員余彩霞），多人用逗號分開；狀態改變、每日提醒都不發給他們（wrangler.toml [vars]，2026-11-16）
+ *   LINE_NEW_ORDER_TO：出貨員（余彩霞），多人用逗號分開；只在訂單收到款、有書要寄（待出貨）時通知，其他狀態改變、每日提醒都不發（wrangler.toml [vars]，2026-11-20 起；原本是新訂單就發）
  * 沒設定就什麼都不做（不會讓同步或排程失敗）。
  */
 export interface LineConfig {
   token?: string;
   to?: string;
-  /** 只收新訂單通知的 user ID（逗號分開） */
+  /** 出貨員：只收待出貨通知的 user ID（逗號分開） */
   newOrderTo?: string;
 }
 
@@ -32,11 +32,36 @@ export async function sendLine(cfg: LineConfig, text: string): Promise<{ ok: boo
 
 export const money = (n: number) => `NT$${n.toLocaleString()}`;
 
-/** 給只收新訂單的人（出貨員）：每張新訂單一段，只有訂單編號、買家、品項、狀態，不含金額 */
-export function shipperNewOrderMessage(created: { orderNo: string; buyer: string; statusLabel: string; items: string[] }[]) {
-  return created
-    .map((o) => [`📦 新訂單 ${o.orderNo}`, `買家：${o.buyer}`, `品項：${o.items.join("、")}`, `狀態：${o.statusLabel}`].join("\n"))
-    .join("\n\n");
+/** 官網付款狀態文字（ORDER_STATUS_LABELS）：這兩個代表已收款、書可以開始寄（官網後台的「2. 待出貨」）；部分退款會在後面加註，所以比開頭 */
+const READY_TO_SHIP = ["已匯款", "課程已開通"];
+export const isReadyToShip = (label: string) => READY_TO_SHIP.some((s) => label.startsWith(s));
+
+/** 要寄的東西：排除課程（品名＝課程名稱，或「課程（○○方案）」）與運費 */
+export function shippableItems(items: string[], courseNames: Set<string>) {
+  return items.filter((n) => n !== "運費" && !courseNames.has(n) && !/方案）$/.test(n));
+}
+
+type PushedOrder = { orderNo: string; buyer: string; items: string[] };
+/**
+ * 這次推送裡變成「待出貨」的訂單：待付款 → 已匯款／課程已開通，或一進來就已付款（線上付款）。
+ * 只有課程、沒有書的訂單不列；直接跳到訂單完成的也不列（書已經寄了）。
+ */
+export function ordersToShip(
+  created: (PushedOrder & { statusLabel: string })[],
+  changed: (PushedOrder & { from: string; to: string })[],
+  courseNames: Set<string>
+) {
+  return [
+    ...created.filter((o) => isReadyToShip(o.statusLabel)),
+    ...changed.filter((c) => c.from.startsWith("待付款") && isReadyToShip(c.to)),
+  ]
+    .map((o) => ({ orderNo: o.orderNo, buyer: o.buyer, items: shippableItems(o.items, courseNames) }))
+    .filter((o) => o.items.length);
+}
+
+/** 給出貨員：每張待出貨訂單一段，只有訂單編號、買家、要寄的書，不含金額 */
+export function shipperShippingMessage(orders: PushedOrder[]) {
+  return orders.map((o) => [`📦 待出貨 ${o.orderNo}`, `買家：${o.buyer}`, `要寄：${o.items.join("、")}`].join("\n")).join("\n\n");
 }
 
 /** 查 LINE 好友的顯示名稱（只讀，不會傳訊息）；用來確認 user ID 填對人 */

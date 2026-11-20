@@ -114,11 +114,11 @@ export async function upsertWebOrders(db: any, rows: z.infer<typeof orderRow>[],
   for (let i = 0; i < nos.length; i += 90)
     for (const o of await db.select().from(webOrders).where(inArray(webOrders.orderNo, nos.slice(i, i + 90)))) before.set(o.orderNo, o);
   const created: { orderNo: string; buyer: string; total: number; statusLabel: string; items: string[] }[] = [];
-  const changed: { orderNo: string; buyer: string; from: string; to: string }[] = [];
+  const changed: { orderNo: string; buyer: string; from: string; to: string; items: string[] }[] = [];
   for (const [no, at, buyer, total, discount, status, tab, items] of rows) {
     const old = before.get(no);
     if (!old) created.push({ orderNo: no, buyer, total, statusLabel: status, items: items.map((it) => it[0]) });
-    else if (old.statusLabel !== status) changed.push({ orderNo: no, buyer, from: old.statusLabel, to: status });
+    else if (old.statusLabel !== status) changed.push({ orderNo: no, buyer, from: old.statusLabel, to: status, items: items.map((it) => it[0]) });
     const orderedAt = new Date(`${at}+08:00`).getTime();
     const itemsJson = JSON.stringify(items.map(([name, price, pre, bun]) => ({ name, price, preorder: !!pre, bundle: !!bun })));
     await db
